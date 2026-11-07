@@ -1,0 +1,5 @@
+[package]
+name = "gusd"
+edition = "2024"
+
+[dependencies]

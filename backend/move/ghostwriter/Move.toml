@@ -6,9 +6,9 @@ edition = "2024"
 # Pyth Core Compatible, Testnet (Pyth docs, Sui guide; OPEN-2).
 # Wormhole is vendored inside this Pyth package, so there is no separate Wormhole line.
 pyth = { git = "https://github.com/pyth-network/pyth-crosschain.git", subdir = "target_chains/sui/contracts", rev = "sui-pro-compatible-contract-testnet" }
-# Local path to a Nautilus clone that sits NEXT TO this repo (…/VSC/ghost-writer and …/VSC/nautilus).
-# The enclave package is published first, so this dependency resolves to its published address.
-enclave = { local = "../../../../nautilus/move/enclave" }
+# Nautilus enclave library, vendored in ../enclave and already published on Testnet
+# (see ../enclave/Published.toml), so this dependency resolves to that published address.
+enclave = { local = "../enclave" }
 
 # New-style manifest (Sui CLI package manager): Sui, MoveStdlib and the other system packages are
 # added implicitly, and the package name `ghostwriter` is its named address, so there is no
