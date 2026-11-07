@@ -1,38 +1,18 @@
 import type { Metadata, Viewport } from 'next';
 
-// Tailwind first: its utilities sit in a cascade layer, so the unlayered
-// rules in globals.css below always take precedence.
-import '@/styles/tailwind.css';
-import '@/styles/globals.css';
-import '@/components/Video/video.css';
+// The template's Kido cream/royal-blue tokens and fonts, plus the app's own rules.
+import '@/styles/app.css';
 
-import AppGrid from '@/components/AppGrid';
-import AppLoader from '@/components/AppLoader';
-import JoinBetaForm from '@/components/JoinBetaForm';
-import Loader from '@/components/Loader';
-import ToastContainer from '@/components/ToastContainer';
-import { UiProvider } from '@/store/ui';
+import { ClientRoot } from './client-root';
 
-/** Carried over verbatim from the template's <head>. */
+const description =
+  'Liquidation cover for Sui borrowers, priced by an AI underwriter whose memory lives on Walrus Memory.';
+
 export const metadata: Metadata = {
-  title: 'Ghost Writer: the fastest and easiest way to connect with your customer',
-  description:
-    'Ghost Writer is an easy in use data sender from a website’s contact form to different messengers and emails: What’s App, Discord, Telegram and etc.',
-  // `metadataBase` silences Next's warning when resolving the OG image URL.
-  metadataBase: new URL('http://localhost:3000'),
+  title: 'Ghostwriter',
+  description,
   icons: { icon: '/favicon.svg' },
-  openGraph: {
-    title: 'Ghost Writer: the fastest and easiest way to connect with your customer',
-    description:
-      'Ghost Writer is an easy in use data sender from a website’s contact form to different messengers and emails: What’s App, Discord, Telegram and etc.',
-    images: ['/twitter.png'],
-  },
-  twitter: {
-    title: 'Ghost Writer: the fastest and easiest way to connect with your customer',
-    description:
-      'Ghost Writer is an easy in use data sender from a website’s contact form to different messengers and emails: What’s App, Discord, Telegram and etc.',
-    images: ['/twitter.png'],
-  },
+  openGraph: { title: 'Ghostwriter', description },
 };
 
 export const viewport: Viewport = {
@@ -43,38 +23,8 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        {/* The stylesheet declares these four faces; preload them so the
-            oversized headings do not reflow. See MISSING-ASSETS.md. */}
-        {[
-          'Aeonik-Regular',
-          'NeueHaasDisplay-Medium',
-          'NeueHaasDisplay-Roman',
-          'RecifeDisplayWeb-BookItalic',
-        ].map((font) => (
-          <link
-            key={font}
-            rel="preload"
-            as="font"
-            type="font/woff2"
-            href={`/fonts/${font}.woff2`}
-            crossOrigin="anonymous"
-          />
-        ))}
-      </head>
       <body>
-        <UiProvider>
-          <div id="__nuxt">
-            <div id="app">
-              <AppGrid />
-              <Loader />
-              <AppLoader />
-              {children}
-              <JoinBetaForm />
-              <ToastContainer />
-            </div>
-          </div>
-        </UiProvider>
+        <ClientRoot>{children}</ClientRoot>
       </body>
     </html>
   );
