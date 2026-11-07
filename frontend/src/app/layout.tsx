@@ -22,8 +22,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
+    // Browser extensions (e.g. Grammarly) add attributes to <html>/<body> before React hydrates.
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <ClientRoot>{children}</ClientRoot>
       </body>
     </html>

@@ -11,13 +11,18 @@ const GRPC_URLS = {
   mainnet: 'https://fullnode.mainnet.sui.io:443',
 } as const;
 
+function isLocalhost() {
+  return typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
+}
+
 export const dAppKit = createDAppKit({
   networks: ['testnet', 'mainnet'],
   defaultNetwork: 'testnet',            // buying happens on Testnet
   createClient: (network) => new SuiGrpcClient({ network, baseUrl: GRPC_URLS[network] }),
   storageKey: 'ghostwriter:wallet',
-  // Shown by the Slush web wallet when connecting. (On localhost its metadata fetch is CORS-blocked; harmless.)
-  slushWalletConfig: { appName: 'Ghostwriter' },
+  // The Slush *web* wallet fetches metadata from api.slush.app, which is CORS-blocked on localhost.
+  // Disable it locally; wallet extensions (Slush extension included) still work everywhere.
+  slushWalletConfig: isLocalhost() ? null : { appName: 'Ghostwriter' },
 });
 
 declare module '@mysten/dapp-kit-react' {
