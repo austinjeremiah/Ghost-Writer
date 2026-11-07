@@ -13,7 +13,7 @@ What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are 
 | P1 | Move contract on Testnet | ✅ done |
 | P2 | Server skeleton (config, SQLite, SSE, health) | ✅ done |
 | P3 | Chain layer (Tatum gRPC, prices, tx builders), create + fund pool | 🔵 next |
-| P4 | Walrus Memory layer (queue, borrower records, onboarding) | ⏳ pending (needs Node 24) |
+| P4 | Walrus Memory layer (queue, borrower records, onboarding) | ⏳ pending |
 | P5 | Pricing, quotes, policy confirm, config/market/proof endpoints | ⏳ pending |
 | P6 | Watchers: price trigger, expiry, warnings, checkpoint pulse | ⏳ pending |
 | P7 | Nautilus enclave on AWS, Suilend reads, liquidation watcher | ⏳ pending (needs AWS) |
@@ -47,7 +47,7 @@ All IDs are in [backend/move/DEPLOYMENTS.md](../backend/move/DEPLOYMENTS.md).
   `.env`, prints only public keys, and never overwrites existing keys.
   Quote public key (goes into the pool): `62a55ba3994c5d6df8e6aceda8e313c587e6e20627cbfffde50231bba73f6a16`.
 - Checked: typecheck clean, health OK, SSE pings and survives disconnects, malformed JSON gives 400.
-- Run it: `cd backend && pnpm install && pnpm dev` (on Node 22 add `NODE_OPTIONS=--experimental-sqlite`).
+- Run it: `cd backend && pnpm install && pnpm dev`.
 
 ### Frontend
 All 9 pages are built against the API contract (ICD §5). They show "backend not reachable" until
@@ -75,9 +75,8 @@ Nothing. Next: **P3**, the chain layer, then create and fund the pool.
 
 | # | Need | Who | Blocks |
 |---|---|---|---|
-| 1 | **Node 24 LTS** installed (the Walrus Memory SDK needs it; `node:sqlite` is built in from Node 24) | you | P4 onward; running the server |
-| 2 | **AWS account** with Nitro Enclaves (us-east-1) | you | P7 liquidation cover only |
-| 3 | More testnet SUI for the server wallet (0.48 SUI left) | you, later | many server transactions |
+| 1 | **AWS account** with Nitro Enclaves (us-east-1) | you | P7 liquidation cover only |
+| 2 | More testnet SUI for the **server wallet** `0xdd6389cc…6e6f2b` (0.49 SUI left). Faucet SUI sent on 7 Nov did not reach it | you | many server transactions |
 
 ## Decisions and changes from the build doc
 
@@ -88,6 +87,7 @@ Nothing. Next: **P3**, the chain layer, then create and fund the pool.
 | **Pool max price age 180 s** (doc: 60 s) | It must be above the ~126 s update gap, or payout checks fail as "stale". |
 | **SUI only on Testnet; BTC off** | The on-chain BTC/USD object was last updated 26 days ago. Re-enable it with a paid Pyth plan or a live feed. |
 | **Vultr inference** instead of OpenAI | Your choice. OpenAI-compatible API, same `openai` client with a different base URL. |
+| **Node 26 LTS** (installed with winget; the doc says 24) | Node 26 is the current LTS. It meets the backend's `>=24` and the Walrus Memory SDK's `>=20`. |
 | **`node:sqlite`** instead of `better-sqlite3` | `better-sqlite3` needs Visual Studio C++ build tools on Windows. |
 | **Two Tatum keys** (`TATUM_API_KEY_MAINNET`, `TATUM_API_KEY_TESTNET`) | Your setup. |
 | **Move manifests use the new Sui package manager** | Sui CLI 1.73 cannot build old-style manifests against Nautilus. |
