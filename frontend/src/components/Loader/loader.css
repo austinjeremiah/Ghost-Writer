@@ -1,0 +1,96 @@
+.loader {
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100vh;
+  height:var(--vh);
+  z-index:1000;
+  background-color:var(--black);
+  color:var(--accent);
+}
+
+.loader__cols {
+  display:flex;
+  justify-content:space-between;
+  gap:1.0416666667vw;
+  height:100vh;
+  height:var(--vh);
+}
+
+.loader__col {
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  height:100vh;
+  height:var(--vh);
+}
+
+.loader__col--1 {
+  position:absolute;
+  top:0;
+  left:0;
+  width:100vw;
+}
+
+.loader__col--1.done {
+  width:auto;
+  position:static;
+}
+
+.loader__col--1 .loader__item {
+  position:relative;
+  top:0;
+  width:-webkit-fit-content;
+  width:-moz-fit-content;
+  width:fit-content;
+  left:50vw;
+  transform:translate(-50%);
+}
+
+/*
+ * The five columns are `justify-content: space-between` across the full
+ * viewport, and each item is `white-space: nowrap`, so the type size is what
+ * decides whether the row fits. The original 3.6458vw was tuned to an
+ * 11-character word; a longer name overflows and pushes the last column off
+ * screen. The component sets --loader-item-fs from the actual word length and
+ * the literal below stays as the fallback.
+ */
+.loader__item {
+  font-size:var(--loader-item-fs, 3.6458333333vw);
+  line-height:1em;
+  white-space:nowrap;
+  opacity:0;
+}
+
+.app-loader {
+  position:fixed;
+  top:30px;
+  left:50%;
+  transform:translate(-50%);
+  z-index:10001;
+  width:4.1666666667vw;
+  height:4.1666666667vw;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  background-color:var(--white);
+  border-radius:50%;
+}
+
+@media (max-width: 1060px) {
+  .app-loader {
+    width:calc(46px + 34 * ((100vw - 375px) / 1545));
+    height:calc(46px + 34 * ((100vw - 375px) / 1545));
+  }
+}
+
+.circular {
+  -webkit-animation:rotate 2s linear infinite;
+  animation:rotate 2s linear infinite;
+  height:50%;
+  transform-origin:center center;
+  width:50%;
+  position:absolute;
+  margin:auto;
+}

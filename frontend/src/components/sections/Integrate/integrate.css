@@ -1,0 +1,150 @@
+.home-5 {
+  position:relative;
+}
+
+@media (min-width: 1060px) {
+  .home-5__h-wrapper {
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+  }
+}
+
+.home-5__h .word {
+  display:inline-block!important;
+}
+
+@media (min-width: 1060px) {
+  .home-5__h .char {
+    display:inline-block;
+    transform:translateY(101%);
+    opacity:0;
+  }
+}
+
+@media (min-width: 1060px) {
+  .home-5__h {
+    font-size:26.0416666667vw;
+    white-space:nowrap;
+    line-height:1em;
+  }
+}
+
+@media (max-width: 1060px) {
+  .home-5__h {
+    margin-left:32px;
+  }
+}
+
+@media (max-width: 460px) {
+  .home-5__h {
+    margin-left:20px;
+  }
+}
+
+.home-5__items {
+  margin-top:1.0416666667vw;
+}
+
+@media (max-width: 1060px) {
+  .home-5__items {
+    margin-top:40px;
+  }
+}
+
+.home-5-li__line {
+  width:100%;
+  height:2px;
+  background-color:var(--accent);
+}
+
+.home-5-li__content {
+  padding-top:.8333333333vw;
+  padding-bottom:.8333333333vw;
+  display:flex;
+  justify-content:space-between;
+}
+
+@media (max-width: 1060px) {
+  .home-5-li__content {
+    padding-top:12px;
+    padding-bottom:12px;
+    flex-direction:column;
+    gap:12px;
+  }
+}
+
+.home-5-li__step {
+  font-family:Aeonik,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Open Sans,Helvetica Neue,sans-serif;
+  font-weight:400;
+  font-size:1.0416666667vw;
+  line-height:1em;
+}
+
+@media (max-width: 1060px) {
+  .home-5-li__step {
+    font-size:16px;
+  }
+}
+
+.home-5-li__text {
+  font-family:Aeonik,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Open Sans,Helvetica Neue,sans-serif;
+  font-weight:400;
+  font-size:2.1875vw;
+  line-height:1em;
+  text-transform:uppercase;
+}
+
+@media (max-width: 1060px) {
+  .home-5-li__text {
+    font-size:28px;
+  }
+}
+
+.home-5__video-wrapper {
+  max-width:74.4791666667vw;
+  opacity:0;
+  margin-left:auto;
+  margin-right:auto;
+  border-radius:0 20px 20px;
+  overflow:hidden;
+  max-height:90vh;
+}
+
+.home-5__video-wrapper img,
+.home-5__video-wrapper video {
+  max-width:100%;
+  display:block;
+}
+
+@media (max-width: 1060px) {
+  .home-5__video-wrapper {
+    max-width:100%;
+    border-radius:10px;
+    opacity:1;
+  }
+}
+
+.home-5__sticky-wrapper {
+  position:relative;
+  height:200vh;
+  margin-top:13.0208333333vw;
+}
+
+@media (max-width: 1060px) {
+  .home-5__sticky-wrapper {
+    margin-top:0;
+    height:200vh;
+  }
+}
+
+.home-5__sticky {
+  position:-webkit-sticky;
+  position:sticky;
+  top:0;
+  height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}

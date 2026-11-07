@@ -1,0 +1,27 @@
+/* Stand-in shown when a referenced .mp4 is not present in /public. */
+.video-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--cl-wash) 0,
+    var(--cl-wash) 10px,
+    transparent 10px,
+    transparent 20px
+  );
+  border: 2px solid var(--cl-line-strong);
+  border-radius: inherit;
+  color: var(--accent);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 24px;
+}
+
+.video-placeholder span {
+  opacity: 0.6;
+}

@@ -1,0 +1,12 @@
+.home-11__h {
+  margin-left:auto;
+  margin-right:auto;
+  text-align:center;
+  font-size:26.0416666667vw;
+}
+
+@media (max-width: 1060px) {
+  .home-11__h {
+    font-size:100px;
+  }
+}

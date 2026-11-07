@@ -1,0 +1,11 @@
+#gl-2 canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* `.js-hidden` marked the element the Three.js scene replaced; nothing paints
+   it any more, so keep it out of the flow and out of the way. */
+.js-hidden {
+  visibility: hidden;
+}

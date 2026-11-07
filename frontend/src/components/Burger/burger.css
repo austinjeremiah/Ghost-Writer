@@ -1,0 +1,97 @@
+.burger {
+  display:flex;
+  position:relative;
+  align-items:center;
+  gap:20px;
+  background-color:transparent;
+  padding:8px 0 8px 8px;
+  box-sizing:content-box;
+}
+
+@media (min-width: 1060px) {
+  .burger {
+    display:none;
+  }
+}
+
+.burger--open .burger__dot--1 {
+  transform:translate(10px);
+  z-index:-1;
+}
+
+.burger--open .burger__dot--3 {
+  transform:translate(-10px);
+  z-index:-1;
+}
+
+.burger--open .burger__dot--2 {
+  transform:scale(1) rotate(180deg);
+}
+
+.burger--open .burger__dot--2:before {
+  transform:translate(-50%,-50%) scale(5);
+  opacity:0;
+}
+
+.burger--open .burger__dot--2 .burger__close-icon {
+  opacity:1;
+}
+
+.burger__dot {
+  display:block;
+  width:6px;
+  position:relative;
+  height:6px;
+  border-radius:20px;
+  background-color:var(--accent);
+  transition:transform .4s ease;
+}
+
+.burger__dot--2 {
+  height:24px;
+  width:24px;
+  position:absolute;
+  left:12px;
+  transform:scale(.25) rotate(0);
+}
+
+.burger__dot--2:before {
+  content:"";
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background-color:var(--accent);
+  width:100%;
+  height:100%;
+  display:block;
+  transition:transform .4s ease,opacity .4s ease;
+  z-index:2;
+}
+
+.burger__close-icon {
+  width:100%;
+  height:100%;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
+  opacity:0;
+  position:relative;
+  transition:opacity .4s ease;
+}
+
+/* The glyph sits on `.burger__dot--2`, which is filled with --accent, so it
+   has to be drawn in the ground colour rather than the inherited type colour. */
+.burger__close-icon {
+  color:var(--black);
+}
+
+.burger__close-icon svg {
+  display:block;
+  max-width:100%;
+  width:8px;
+  height:8px;
+  position:relative;
+}

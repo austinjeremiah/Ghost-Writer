@@ -1,0 +1,32 @@
+/*
+ * Tailwind is here only to serve the utility classes that the shadcn/magicui
+ * components in `src/components/ui/` are authored with. The rest of this app
+ * is the hand-ported stylesheet from the original template.
+ *
+ * Preflight is deliberately NOT imported. Tailwind's reset would fight the
+ * template's own reset in `globals.css` — it restyles `body`, strips heading
+ * sizes and weights, and resets form controls, all of which that sheet sets up
+ * on purpose. Importing theme + utilities only keeps the utilities available
+ * without touching a single element selector.
+ *
+ * Utilities sit in the `utilities` cascade layer and `globals.css` is
+ * unlayered, so the ported rules win any property both of them set. Note the
+ * limit of that: where a Tailwind utility sets a property the template's rule
+ * never mentions, there is no conflict for the cascade to resolve and the
+ * utility simply applies. That is a real hazard wherever a template class name
+ * matches a Tailwind utility name — `container` is one, and `globals.css`
+ * pins `max-width: none` on it for exactly this reason.
+ */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/*
+ * Only the shadcn components need scanning. This keeps the generated CSS to
+ * the handful of classes they use rather than a utility for every class name
+ * that happens to appear in the ported markup. (Tailwind's own automatic
+ * detection still runs alongside this, so it is a size win, not a guarantee —
+ * the `container` pin in globals.css is what actually prevents the collision.)
+ */
+@source "../components/ui";

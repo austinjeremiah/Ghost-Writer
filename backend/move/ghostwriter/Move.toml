@@ -1,0 +1,17 @@
+[package]
+name = "ghostwriter"
+edition = "2024"
+
+[dependencies]
+# Pyth Core Compatible, Testnet (Pyth docs, Sui guide; OPEN-2).
+# Wormhole is vendored inside this Pyth package, so there is no separate Wormhole line.
+pyth = { git = "https://github.com/pyth-network/pyth-crosschain.git", subdir = "target_chains/sui/contracts", rev = "sui-pro-compatible-contract-testnet" }
+# Same Sui framework rev that Pyth's own testnet Move.toml pins (avoids a framework conflict).
+# If `sui move build` reports a dependency conflict on Sui/MoveStdlib, add `override = true` here.
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "041c5f2bae2fe52079e44b70514333532d69f4e6" }
+# Local path to a Nautilus clone that sits NEXT TO this repo (…/Hacks/Ghostwriter and …/Hacks/nautilus).
+# The enclave package is published first, so this dependency resolves to its published address.
+enclave = { local = "../../../../nautilus/move/enclave" }
+
+[addresses]
+ghostwriter = "0x0"
