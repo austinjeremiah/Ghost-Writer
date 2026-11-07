@@ -1,5 +1,5 @@
 // lib/errors.ts
-import { ApiError } from './api';
+import { API_URL, ApiError } from './api';
 
 /** Move abort codes, backend §5.6. */
 export const ABORTS: Record<number, string> = {
@@ -55,6 +55,8 @@ export function userMessage(e: unknown): string {
     }
   }
   const msg = e instanceof Error ? e.message : String(e);
+  // fetch() rejects with a TypeError when the backend is down or CORS blocks it.
+  if (e instanceof TypeError && /fetch|network|load failed/i.test(msg)) return `Can't reach the Ghostwriter backend at ${API_URL}.`;
   if (/reject|denied|cancel/i.test(msg)) return 'You cancelled the request in your wallet.';
   const code = abortFromMessage(msg);
   return code ? ABORTS[code] : msg;

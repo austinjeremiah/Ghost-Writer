@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { Activity, Brain, CircleCheck, Database, KeyRound, ShieldCheck, ShieldPlus, Wallet } from 'lucide-react';
 import { BlobLink, ErrorState } from '@/components/common';
+import { userMessage } from '@/lib/errors';
 import { usd } from '@/lib/format';
 import { useBook, useMarket, useProof } from '@/hooks/queries';
 import { useBorrower } from '@/hooks/useBorrower';
@@ -38,7 +39,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="card grid-3">
+      {!(proof.isError && book.isError && market.isError) && <section className="card grid-3">
         {!proof.isError && (
           <Link href="/proof" className="figure" aria-label="Memories on Walrus Mainnet, see proof">
             <span className="big">{proof.data ? proof.data.mainnetMemories.toLocaleString('en-US') : '—'}</span>
@@ -57,10 +58,13 @@ export default function HomePage() {
             <span className="label"><Activity size={14} /> SUI price from Pyth</span>
           </div>
         )}
-      </section>
-      {proof.isError && <ErrorState error={proof.error} onRetry={() => proof.refetch()} />}
-      {book.isError && <ErrorState error={book.error} onRetry={() => book.refetch()} />}
-      {market.isError && <ErrorState error={market.error} onRetry={() => market.refetch()} />}
+      </section>}
+      {/* One message per distinct error (when the backend is down all three fail the same way). */}
+      {[...new Map(
+        [proof, book, market].filter((q) => q.isError).map((q) => [userMessage(q.error), q] as const),
+      )].map(([msg]) => (
+        <ErrorState key={msg} error={new Error(msg)} onRetry={() => { proof.refetch(); book.refetch(); market.refetch(); }} />
+      ))}
 
       <section className="card">
         <h2>How it works</h2>

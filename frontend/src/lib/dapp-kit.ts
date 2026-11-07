@@ -16,6 +16,8 @@ export const dAppKit = createDAppKit({
   defaultNetwork: 'testnet',            // buying happens on Testnet
   createClient: (network) => new SuiGrpcClient({ network, baseUrl: GRPC_URLS[network] }),
   storageKey: 'ghostwriter:wallet',
+  // Shown by the Slush web wallet when connecting. (On localhost its metadata fetch is CORS-blocked; harmless.)
+  slushWalletConfig: { appName: 'Ghostwriter' },
 });
 
 declare module '@mysten/dapp-kit-react' {
