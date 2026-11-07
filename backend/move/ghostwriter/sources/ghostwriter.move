@@ -418,5 +418,24 @@ public fun anchor(_: &AdminCap, ledger: &mut Ledger, seq: u64, head: vector<u8>,
 public fun policy_status<C>(p: &Policy<C>): u8 { p.status }
 public fun pool_free<C>(p: &Pool<C>): u64 { free(p) }
 
+public fun pool_locked<C>(p: &Pool<C>): u64 { p.locked }
+public fun pool_vault<C>(p: &Pool<C>): u64 { p.vault.value() }
+public fun ledger_seq(l: &Ledger): u64 { l.seq }
+
 #[test_only]
 public fun name_for_testing(): String { b"ghostwriter".to_string() }
+
+#[test_only]
+public fun admin_cap_for_testing(ctx: &mut TxContext): AdminCap { AdminCap { id: object::new(ctx) } }
+
+/// The exact bytes `buy` verifies the quote signature over.
+#[test_only]
+public fun quote_bytes_for_testing(
+    pool_id: ID, buyer: address, kind: u8, feed_id: vector<u8>, strike_e8: u64, obligation_id: address,
+    payout: u64, premium: u64, start_ms: u64, end_ms: u64, quote_id: vector<u8>, expires_ms: u64,
+): vector<u8> {
+    bcs::to_bytes(&QuoteMessage {
+        domain: QUOTE_DOMAIN, pool_id, buyer, kind, feed_id, strike_e8, obligation_id,
+        payout, premium, start_ms, end_ms, quote_id, expires_ms,
+    })
+}
