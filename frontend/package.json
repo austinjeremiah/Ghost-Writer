@@ -11,8 +11,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@mysten-incubation/memwal": "^0.1.13",
+    "@mysten/dapp-kit-react": "^2.1.45",
+    "@mysten/seal": "^1.5.4",
+    "@mysten/sui": "^2.39.1",
+    "@tanstack/react-query": "^5.107.1",
     "clsx": "^2.1.1",
     "gsap": "3.12.5",
+    "lucide-react": "^1.70.0",
     "matter-js": "0.20.0",
     "motion": "^14.10.1",
     "next": "16.4.5",
