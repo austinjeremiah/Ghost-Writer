@@ -1,3 +1,31 @@
+# Ghostwriter — frontend
+
+The dApp from `docs/GHOSTWRITER_FRONTEND.md`: Home, Set up memory, Get cover,
+My policies (+ detail), My memory, Underwriter, Agents and Proof. It talks only
+to the backend API and SSE stream described in `docs/GHOSTWRITER_BACKEND.md` §5.
+
+```bash
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:8787
+npm install
+npm run dev                  # start the backend first (CORS_ORIGINS=http://localhost:3000)
+```
+
+| Folder | What lives there |
+| --- | --- |
+| `src/app/` | one folder per route; `providers.tsx` (react-query, dApp Kit, SSE) loads client-only via `client-root.tsx` |
+| `src/lib/` | `types` (ICD), `api`, `events` (one SSE connection), `format`, `errors`, `dapp-kit`, `memwal` (Mainnet), `buy` (Testnet) |
+| `src/hooks/` | react-query hooks, `useBorrower`, `useDusdc` |
+| `src/components/shell`, `common`, `policy` | app shell, shared widgets, policy pieces |
+| `src/styles/app.css` | the app's styles, built on the template's Kido cream/royal-blue tokens |
+
+Policies and money sign on **Sui Testnet**; Walrus Memory steps sign on **Sui Mainnet**.
+
+The original landing-page rebuild below (components under `src/components/`
+outside `shell/`, `common/`, `policy/`, plus `src/styles/globals.css`) is still
+in the repo but no longer mounted at `/`.
+
+---
+
 # Ghost Writer — Next.js rebuild
 
 > Built from a scrape of a landing page that shipped under the name
