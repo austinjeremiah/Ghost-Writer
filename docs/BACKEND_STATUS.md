@@ -12,8 +12,8 @@ What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are 
 | P0 | Accounts, keys, tools | 🟡 mostly done (see blockers) |
 | P1 | Move contract on Testnet | ✅ done |
 | P2 | Server skeleton (config, SQLite, SSE, health) | ✅ done |
-| P3 | Chain layer (Tatum gRPC, prices, tx builders), create + fund pool | 🔵 next |
-| P4 | Walrus Memory layer (queue, borrower records, onboarding) | ⏳ pending |
+| P3 | Chain layer (Tatum gRPC, prices, tx builders), create + fund pool | ✅ done |
+| P4 | Walrus Memory layer (queue, borrower records, onboarding) | 🔵 next |
 | P5 | Pricing, quotes, policy confirm, config/market/proof endpoints | ⏳ pending |
 | P6 | Watchers: price trigger, expiry, warnings, checkpoint pulse | ⏳ pending |
 | P7 | Nautilus enclave on AWS, Suilend reads, liquidation watcher | ⏳ pending (needs AWS) |
@@ -49,21 +49,36 @@ All IDs are in [backend/move/DEPLOYMENTS.md](../backend/move/DEPLOYMENTS.md).
 - Checked: typecheck clean, health OK, SSE pings and survives disconnects, malformed JSON gives 400.
 - Run it: `cd backend && pnpm install && pnpm dev`.
 
+### P3: chain layer, pool
+- Tatum native gRPC clients for Mainnet and Testnet (one key and one rate limit each), retries on
+  transient errors, serialized server transactions.
+- Prices read from Pyth's on-chain `PriceInfoObject` on Testnet (looked up through Pyth's state table),
+  with a freshness check against the pool's max price age.
+- Readers for Pool, Policy and Ledger objects. Tx builders for report/reset/confirm breach, expire,
+  liquidation settlement, ledger create and anchor, pause.
+- Quote message encoding in TypeScript, checked byte-for-byte against the Move contract (`pnpm test`).
+- **Pool created and funded:** `0x76e3792eeb08a19ad7cb1a72e53472c1f3194726be0aeb8b0ed5ede587051d74`,
+  2,000 gUSD, confirm delay 120 s, max price age 180 s. `pnpm pool:create` writes the ID into `.env`;
+  `pnpm pool:fund <n>` mints gUSD from the faucet and deposits it in one tx.
+- `pnpm smoke` passes: Tatum gRPC (both networks), Tatum OHLCV, on-chain SUI price, Walrus Memory
+  (health and a signed call with the delegate key), Vultr.
+- **Live end-to-end check (`pnpm e2e:price`):** sign quote → buy → report breach → wait 2 min →
+  confirm breach → 5 gUSD paid to the holder, all on Testnet with the real on-chain SUI price.
+
 ### Frontend
 All 9 pages are built against the API contract (ICD §5). They show "backend not reachable" until
 the server is running.
 
 ## In progress
 
-Nothing. Next: **P3**, the chain layer, then create and fund the pool.
+Nothing. Next: **P4**, the Walrus Memory layer.
 
 ## Pending
 
-- **P3:** Tatum gRPC clients (the gateways speak native gRPC only; JSON-RPC URLs return 404),
-  reading prices from the on-chain Pyth object, tx builders, create the pool, fund it with gUSD,
-  smoke test.
 - **P4:** Walrus Memory write queue, borrower hash-chained records, onboarding endpoint.
 - **P5:** volatility from Tatum candles, quote pricing and signing, memory citations, Vultr explanation.
+  Note: the qwen model returned empty text with a 20-token limit (it likely spends tokens on hidden
+  reasoning); turn thinking off or raise the limit for explanations.
 - **P6:** watchers that report, confirm and reset breaches, expire policies and send warnings.
 - **P7:** Nautilus enclave on AWS Nitro and the liquidation watcher.
 - **P8:** learning rules from outcomes and seeding at least 10 backtest memories on Mainnet.
@@ -76,7 +91,6 @@ Nothing. Next: **P3**, the chain layer, then create and fund the pool.
 | # | Need | Who | Blocks |
 |---|---|---|---|
 | 1 | **AWS account** with Nitro Enclaves (us-east-1) | you | P7 liquidation cover only |
-| 2 | More testnet SUI for the **server wallet** `0xdd6389cc…6e6f2b` (0.49 SUI left). Faucet SUI sent on 7 Nov did not reach it | you | many server transactions |
 
 ## Decisions and changes from the build doc
 

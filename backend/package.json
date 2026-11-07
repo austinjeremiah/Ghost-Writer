@@ -17,7 +17,8 @@
     "seed": "tsx scripts/seed-backtest.ts",
     "peek:suilend": "tsx scripts/peek-suilend.ts",
     "warm:ohlcv": "tsx scripts/warm-ohlcv.ts",
-    "agent": "tsx scripts/agent-buyer.ts"
+    "agent": "tsx scripts/agent-buyer.ts",
+    "e2e:price": "tsx scripts/e2e-price-path.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

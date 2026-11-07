@@ -15,6 +15,8 @@ Published with Sui CLI 1.73.1 from the server address
 | `AdminCap` (owned by server) | `0x0efa4379f064661d32d5ae86872e423be6a4b9245b2a15b07b6ef6542f6abc0e` | |
 | `EnclaveConfig<GHOSTWRITER>` (shared) | `0xea95563f84284e7bfef75a0885ea361c1ccaf8d70005e7e151ed0442333e57f8` | PCRs are placeholders until the enclave is built (P7) |
 | `enclave::Cap<GHOSTWRITER>` (owned by server) | `0x125895a0aca256e38cdfe7753136510977bcf238580a96582fe948213b5a0bc6` | needed in P7 to update PCRs |
+| `Pool<GUSD>` (shared) | `0x76e3792eeb08a19ad7cb1a72e53472c1f3194726be0aeb8b0ed5ede587051d74` | create tx `5E9pR6X72436kuCnTLAeqTZTgc1FqM3A6ai4ZPnjX5u3`; confirm delay 120 s, max price age 180 s, max conf 2%; funded with 2,000 gUSD |
+| Pyth SUI/USD `PriceInfoObject` (Testnet, not ours) | `0x867877562b5d8ac262d93b02062e04b428a2f9bfbb2f05b8af52e04cd98bd241` | pushed by others every ~126 s |
 
 ### Why gUSD instead of DUSDC
 The backend doc uses DeepBook Predict's DUSDC as the premium/payout coin, but its request form
