@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { db } from '../db.js';
 import { env, C, ENABLED_ASSETS, FEED_BY_ASSET, type Asset } from '../config.js';
 import { AppError } from '../errors.js';
+import { decide, type Decision } from '../underwriting/decide.js';
 import { latestSpots, assertFresh } from '../chain/pyth.js';
 import { pool } from '../chain/poolCache.js';
 import { signQuote, type QuoteTerms } from '../chain/quoteMessage.js';
@@ -101,6 +102,7 @@ function toDTO(x: {
   terms: QuoteTerms; asset: Asset; signatureHex: string; spotUsd: number; vol: number; probability: number;
   base: bigint; mult: number; factors: { cases: number; rules: number; borrower: number };
   citations: Citation[]; explanation: { text: string; source: 'llm' | 'fallback' }; obligationVerified: boolean | null;
+  decision: Decision;
 }) {
   const q = x.terms;
   return {
@@ -119,6 +121,13 @@ function toDTO(x: {
     endMs: q.endMs,
     expiresMs: q.expiresMs,
     signatureHex: x.signatureHex,
+    /** Why the underwriter agreed to take this risk, and the exposure it weighed. */
+    underwriting: {
+      verdict: x.decision.verdict,
+      reason: x.decision.reason,
+      source: x.decision.source,
+      exposure: x.decision.exposure,
+    },
     pricing: {
       spotUsd: x.spotUsd,
       volAnnual: Number(x.vol.toFixed(4)),
@@ -233,6 +242,31 @@ export async function makeQuote(input: QuoteInputT): Promise<QuoteDTO> {
     throw new AppError('BAD_REQUEST', 'cover is too likely to pay out at this trigger; choose a lower trigger or a shorter duration');
   }
 
+  // ---- underwriting decision -------------------------------------------------------------
+  // Pricing has answered "how much". Now the agent decides whether this book should take it at
+  // all, reasoning over its live exposure, the cases just recalled, and its own past verdicts.
+  // A refusal is returned to the caller rather than thrown: the UI shows the reason and the
+  // counter-offers, which is the point of having an underwriter rather than a formula.
+  const decision = await decide(
+    {
+      buyer: input.buyer, asset: input.asset, payoutUsdc: input.payoutUsdc,
+      triggerPriceUsd: input.triggerPriceUsd, durationDays: input.durationDays,
+      spotUsd: spot.spotUsd, buckets, multiplier: mult, probability: p,
+      borrower: getBorrower(input.buyer)
+        ? { verified: true, payouts: 0, responses: 0 }
+        : null,
+    },
+    citations,
+  );
+  if (decision.verdict !== 'accept') {
+    throw new AppError('UNDERWRITING_DECLINED', decision.reason, {
+      verdict: decision.verdict,
+      counters: decision.counters,
+      exposure: decision.exposure,
+      citations: decision.citations,
+    });
+  }
+
   // Refuse rather than issue a quote whose buy would abort for capacity (abort 6).
   const p0 = await pool();
   if (p0.paused) throw new AppError('CONFLICT', 'the underwriter is paused');
@@ -266,14 +300,18 @@ export async function makeQuote(input: QuoteInputT): Promise<QuoteDTO> {
   };
   const explanation = await explainQuote({
     asset: input.asset, spotUsd: spot.spotUsd, triggerUsd: input.triggerPriceUsd, days: input.durationDays,
-    volAnnual: Number(vol.toFixed(4)), probability: Number(p.toFixed(4)), payoutUsdc: input.payoutUsdc,
-    premiumUsdc: Number(premium) / 10 ** env.COIN_DECIMALS, multiplier: Number(mult.toFixed(3)), factors,
+    volAnnual: Number(vol.toFixed(4)), probability: Number(p.toFixed(4)),
+    // The key names are what the model reads for the unit: `payoutUsdc` made it write "USDC",
+    // which is the wrong coin — the pool settles in gUSD.
+    currency: 'gUSD', payout: input.payoutUsdc,
+    // Rounded, or the model repeats all six decimals back at the reader.
+    premium: Number((Number(premium) / 10 ** env.COIN_DECIMALS).toFixed(2)), multiplier: Number(mult.toFixed(3)), factors,
     memories: citations.map((c) => ({ id: c.blobId.slice(0, 8), kind: c.kind, summary: c.summary })),
   });
 
   const dto = toDTO({
     terms, asset: input.asset, signatureHex, spotUsd: spot.spotUsd, vol, probability: p,
-    base, mult, factors, citations, explanation, obligationVerified,
+    base, mult, factors, citations, explanation, obligationVerified, decision,
   });
 
   db.prepare(

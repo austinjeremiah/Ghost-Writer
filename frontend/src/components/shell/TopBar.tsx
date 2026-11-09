@@ -27,8 +27,8 @@ export function TopBar() {
         <Activity size={14} /> SUI {sui ? usd(sui.spotUsd, 3) : '—'}
       </span>
       {address && (
-        <span className="pill" title="Your DUSDC on Sui Testnet">
-          <Coins size={14} /> {balance !== undefined ? fromBase(balance) : '—'} DUSDC
+        <span className="pill" title="Your gUSD on Sui Testnet">
+          <Coins size={14} /> {balance !== undefined ? fromBase(balance) : '—'} gUSD
         </span>
       )}
       <ConnectButton />

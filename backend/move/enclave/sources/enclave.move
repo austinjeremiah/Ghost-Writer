@@ -16,6 +16,7 @@ const EInvalidPCRs: u64 = 0;
 const EInvalidConfigVersion: u64 = 1;
 const EInvalidCap: u64 = 2;
 const EInvalidOwner: u64 = 3;
+const EInvalidPk: u64 = 4;
 
 // PCR0: Enclave image file
 // PCR1: Enclave Kernel
@@ -88,6 +89,40 @@ public fun register_enclave<T>(
     ctx: &mut TxContext,
 ) {
     let pk = enclave_config.load_pk(&document);
+
+    let enclave = Enclave<T> {
+        id: object::new(ctx),
+        pk,
+        config_version: enclave_config.version,
+        owner: ctx.sender(),
+    };
+
+    transfer::share_object(enclave);
+}
+
+/// Registers an enclave public key under the `Cap`, with no attestation document.
+///
+/// `register_enclave` is the real path and is unchanged: it accepts a key only when AWS Nitro
+/// vouches, via the attestation document, that the key was generated inside an enclave whose
+/// measurements match this config's PCRs. Nitro Enclaves require an instance type that an AWS Free
+/// Plan account cannot launch, so for a local demo the `Cap` holder registers the key by hand
+/// instead.
+///
+/// This is deliberately weaker, and the difference is exactly one link: it proves the operator
+/// vouches for the key, not that the key lives in a TEE. Everything downstream is identical —
+/// `verify_signature` checks the same ed25519 signature over the same BCS intent message, and
+/// `config_version` is still pinned so that rotating the PCRs invalidates this enclave too.
+///
+/// Anyone auditing a deployment can tell which path was used: an `Enclave` registered this way has
+/// no corresponding `load_nitro_attestation` call in its creating transaction.
+public fun register_enclave_by_cap<T: drop>(
+    enclave_config: &EnclaveConfig<T>,
+    cap: &Cap<T>,
+    pk: vector<u8>,
+    ctx: &mut TxContext,
+) {
+    cap.assert_is_valid_for_config(enclave_config);
+    assert!(pk.length() == 32, EInvalidPk);
 
     let enclave = Enclave<T> {
         id: object::new(ctx),

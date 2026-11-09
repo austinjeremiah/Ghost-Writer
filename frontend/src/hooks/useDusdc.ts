@@ -5,7 +5,7 @@ import { useAddress, useConfig } from './queries';
 
 export const dusdcKey = (address: string | null) => ['dusdc', address ?? ''] as const;
 
-/** DUSDC (Testnet) held by the connected wallet, in base units. Refetched every 30 s and after a buy. */
+/** gUSD (Testnet) held by the connected wallet, in base units. Refetched every 30 s and after a buy. */
 export function useDusdc() {
   const address = useAddress();
   const { data: cfg } = useConfig();

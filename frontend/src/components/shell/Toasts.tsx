@@ -7,6 +7,11 @@ export type ToastInput = {
   icon: ComponentType<{ size?: number }>;
   text: ReactNode;
   action?: { label: string; href: string; external?: boolean };
+  /**
+   * Stay until the reader dismisses it. For events they must not miss because they happened to be
+   * on another page — a payout above all, which is money arriving and is worth going back to read.
+   */
+  sticky?: boolean;
 };
 type Toast = ToastInput & { id: number };
 
@@ -18,16 +23,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const dismiss = useCallback((id: number) => setToasts((ts) => ts.filter((t) => t.id !== id)), []);
   const push = useCallback((t: ToastInput) => {
     const id = nextId++;
-    setToasts((ts) => [...ts, { ...t, id }].slice(-4));
-    setTimeout(() => dismiss(id), 9000);
+    setToasts((ts) => {
+      const next = [...ts, { ...t, id }];
+      // Trim to four, but drop the oldest transient one first so a sticky notice is never
+      // pushed out by routine chatter.
+      while (next.length > 4) {
+        const victim = next.findIndex((x) => !x.sticky);
+        next.splice(victim === -1 ? 0 : victim, 1);
+      }
+      return next;
+    });
+    if (!t.sticky) setTimeout(() => dismiss(id), 9000);
   }, [dismiss]);
 
   return (
     <ToastCtx.Provider value={push}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
-        {toasts.map(({ id, icon: Icon, text, action }) => (
-          <div key={id} className="toast">
+        {toasts.map(({ id, icon: Icon, text, action, sticky }) => (
+          <div key={id} className={sticky ? 'toast toast--sticky' : 'toast'}>
             <Icon size={18} />
             <div className="toast-body">
               <div>{text}</div>

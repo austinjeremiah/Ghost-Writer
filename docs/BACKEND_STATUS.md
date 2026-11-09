@@ -16,7 +16,7 @@ What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are 
 | P4 | Walrus Memory layer (queue, borrower records, onboarding) | ✅ done |
 | P5 | Pricing, quotes, policy confirm, config/market/proof endpoints | ✅ done |
 | P6 | Watchers: price trigger, expiry, warnings, checkpoint pulse | ✅ done |
-| P7 | Nautilus enclave, Suilend reads, liquidation watcher | 🟡 code done, **needs AWS to run** |
+| P7 | Nautilus enclave, Suilend reads, liquidation watcher | 🟡 **logic verified live on Mainnet + settlement verified on-chain**; only the Nitro hardware attestation is missing (AWS account plan) — [runbook](P7_ENCLAVE_RUNBOOK.md) |
 | P8 | Learning loop, underwriter book, backtest seeding | ✅ done — **47 memories on Mainnet** |
 | P9 | x402 agent payments | ✅ done — real purchase settled |
 | P10 | DeepBook Predict hedge | ⏸ dropped (needs DUSDC; we use gUSD) |
@@ -32,8 +32,11 @@ What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are 
 | Signed quote → Move `buy` | Quote Ed25519-signed by the backend, verified on-chain; byte-for-byte BCS test in `pnpm test` |
 | Price payout, fully automatic | `pnpm e2e:price`: buy → report_breach → 2 min → confirm_breach → 5 gUSD paid |
 | **x402 agent purchase** | `pnpm agent`: 402 → signed buy tx in `PAYMENT-SIGNATURE` → policy `0xab6a92da…32d6`, digest `7vgEBffKjhwxo5wHpNWCEc73GF6Pxmj3Kf7GjfWyNU3` |
+| **Enclave signs a real Mainnet liquidation** | `cargo test … -- --ignored`: reads Suilend tx `HUKqRVpJNuhmzx7SsAPuHgb3Lq5kt2tT1FnR7mSEv3DV`, finds the `LiquidateEvent` for obligation `0xcc69…22e4`, takes the timestamp from the chain, signs; the signature verifies over the exact BCS bytes the contract rebuilds |
+| **Enclave refuses a false claim** | Same real transaction, a different real obligation → *"no LiquidateEvent for this obligation in that transaction"*, no signature. This is the security property |
+| **Liquidation settlement on-chain** | 5 Move tests with real ed25519 signatures: pays the holder, and aborts 16, 18 and 9 all fire |
 | Tatum gRPC **streaming** | `checkpointPulse: stream` — real Testnet checkpoint sequence numbers over SSE |
-| Tests | 17 node tests + 18 Move tests, all pass; `pnpm typecheck` clean |
+| Tests | 19 node + 24 Move + 6 Rust tests, all pass; `pnpm typecheck` clean |
 
 ## What runs where
 
@@ -52,11 +55,19 @@ What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are 
 
 ## Pending
 
-1. **P7 needs AWS** (the only external blocker). All the code is written: `enclave/mod.rs`,
-   `enclave/allowed_endpoints.yaml`, `src/enclave/client.ts`, `src/workers/liquidationWatcher.ts`,
-   and the claim route. Without `ENCLAVE_URL` the liquidation path reports "enclave not configured"
-   and everything else is unaffected. **The Rust has not been compiled** — it needs the Nautilus
-   clone to build against.
+1. **P7 — only the Nitro hardware attestation is missing.** See
+   [P7_ENCLAVE_RUNBOOK.md](P7_ENCLAVE_RUNBOOK.md). Everything that does not need Nitro hardware is
+   done and tested for free: the enclave signs a real Mainnet Suilend liquidation and refuses two
+   kinds of false claim (3 live Rust tests), and on-chain settlement is proven with real ed25519
+   signatures including aborts 16, 18 and 9 (5 Move tests). What is unproven is only that the
+   signing key belongs to a TEE running this code.
+   `RunInstances` returns *"The specified instance type is not eligible for Free Tier"*: the account
+   is on AWS's Free Plan, whose eligible instance types have **no** overlap with the types that
+   support Nitro Enclaves (enclaves need ≥4 vCPU; every eligible type is 2 vCPU). Upgrading the plan
+   in the Billing console is the only fix — it is not the same as paying, since sign-up credits carry
+   over and a three-hour session costs about $0.65 of them.
+   While unconfigured the liquidation path reports "enclave not configured" and nothing else is
+   affected.
 2. **Borrower onboarding needs a browser** once: a second MemWalAccount owned by your own wallet,
    with our borrower delegate key added. The frontend onboarding page does this; the key to paste is
    in `GET /v1/config` → `memwal.borrowerDelegatePublicKeyHex`.
@@ -73,6 +84,8 @@ What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are 
 | **Pool max price age 180 s** (doc: 60 s) | Must exceed the ~126 s push gap or every settlement aborts as stale. |
 | **SUI only; BTC off** | The Testnet BTC/USD object is weeks stale. `ENABLED_ASSETS=SUI`. |
 | **Vultr inference** instead of OpenAI, with `reasoning_effort: 'none'` | Your key. The model is a reasoning model: by default it spent the whole token budget thinking and returned `finish_reason: length` with empty text. Confirmed fix against the endpoint. |
+| **Enclave reads Sui GraphQL**, not Tatum JSON-RPC | The enclave's original `sui_getTransactionBlock` call could never have worked: Tatum serves Sui over gRPC only and its HTTPS host 404s every JSON-RPC method, while public fullnodes now answer *"JSON-RPC on public fullnodes has been deprecated"*. `https://graphql.mainnet.sui.io/graphql` works and needs no API key, so the enclave now holds no secret. It returns RFC 3339 rather than epoch ms, so the conversion is written out and unit tested against a live value — the contract compares that signed timestamp against the cover window. |
+| **`Move.lock` paths normalised** | The lock files were generated on Windows with `crates\sui-framework\…` subdirs, so `sui move test` could not load `move-stdlib` on macOS. |
 | **Liquidation discovery polls obligations**, not events | Tatum's plan answers "gRPC method not allowed" for `ListEvents`/`SubscribeEvents`. Instead the watcher reads each covered obligation's `previousTransaction`; any change is a candidate and **the enclave decides** whether it was a liquidation. A refusal doubles as evidence the borrower reacted to a warning. The event-stream path is still in the code and activates automatically on a plan that allows it. |
 | **Backtest uses intraday lows**, not closes | Tatum's OHLCV returns `high`/`low`. A barrier is touched intraday, so closes undercount hits. This makes the hit rates true barrier touches and removes a systematic downward bias in the case factor. |
 | **Exact bucket match required for base rates** | Semantic recall put "distance=0-5 duration=8-30d" within 0.14 of "distance=5-10 duration=4-7d" — bucket hit rates differ wildly (92% vs 45%), and the first mispriced a 10 gUSD payout at 9.44. Recall now finds candidates; the JSON inside the memory decides the match. Live payouts still count from neighbouring buckets. |

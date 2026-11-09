@@ -2,6 +2,7 @@
 import type {
   Health, Config, Market, BorrowerDTO, HistoryDTO, Positions, QuoteInput, QuoteDTO, QuoteStatus,
   PolicyDTO, PolicyStatus, Book, UnderwriterMemory, UnderwriterNamespace, MemoryWrites, Proof, PaymentRequired,
+  AskTurn, AskResult, AgentRun,
 } from './types';
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8787';
@@ -60,6 +61,14 @@ export const api = {
     call<UnderwriterMemory>(`/v1/underwriter/memory?namespace=${namespace}&limit=${limit}`),
   memoryWrites: (limit = 50) => call<MemoryWrites>(`/v1/memory/writes?limit=${limit}`),
   proof: () => call<Proof>('/v1/proof'),
+  askUnderwriter: (question: string, history: AskTurn[], address?: string | null, context?: string) =>
+    call<AskResult>('/v1/underwriter/ask', {
+      method: 'POST',
+      body: { question, history, ...(address ? { address } : {}), ...(context ? { context } : {}) },
+    }),
+
+  /** Run the buying agent from an instruction in English; it pays from its own wallet. */
+  runAgent: (brief: string) => call<AgentRun>('/v1/agent/run', { method: 'POST', body: { brief } }),
 
   /** x402 step 1 only: ask for a price without paying. The backend answers 402 with the payment terms. */
   agentPaymentRequired: async (input: QuoteInput): Promise<PaymentRequired> => {

@@ -1,4 +1,5 @@
-// lib/types.ts — mirrors GHOSTWRITER_BACKEND.md §5. Amounts are integer base-unit strings (DUSDC = 6 decimals).
+// lib/types.ts — verified field by field against the live backend (see docs/WIRING.md).
+// Amounts are integer base-unit strings; the pool's coin is gUSD, 6 decimals.
 export type PolicyKind = 'price' | 'liquidation';
 export type Asset = 'SUI' | 'BTC';
 export type QuoteStatus = 'issued' | 'used' | 'expired';
@@ -11,7 +12,9 @@ export type VolBucket = 'low' | 'mid' | 'high';
 export type Health = {
   ok: true; version: string; uptimeS: number;
   workers: {
-    priceWatcher: 'running' | 'stopped'; liquidationWatcher: 'running' | 'stopped';
+    priceWatcher: 'running' | 'stopped';
+    // 'polling' is the normal mode: Tatum's plan blocks event RPCs, so it polls obligations.
+    liquidationWatcher: 'running' | 'polling' | 'stopped';
     checkpointPulse: 'stream' | 'polling' | 'stopped'; memoryQueue: 'running' | 'stopped';
     hedger: 'disabled' | 'running';
   };
@@ -20,21 +23,33 @@ export type Health = {
 export type Config = {
   network: { policies: 'testnet'; memory: 'mainnet' };
   packageId: string; poolId: string; coinType: string; coinDecimals: 6; clockId: '0x6';
-  feeds: { SUI: string; BTC: string };
-  pool: { confirmDelayMs: number; maxConfBps: number; maxPriceAgeS: number; quotePubkeyHex: string; paused: boolean };
+  /** The gUSD faucet object; anyone can mint test coins from it. */
+  coinFaucetId: string;
+  /** Drive every asset selector from this. BTC is off: its Testnet price object is weeks stale. */
+  enabledAssets: Asset[];
+  /** Only enabled assets appear, so this is partial. */
+  feeds: Partial<Record<Asset, string>>;
+  pool: { confirmDelayMs: number; maxConfBps: number; maxPriceAgeS: number; quotePubkeyHex: string;
+          /** False means the backend's signing key no longer matches the pool's — quotes would abort 3. */
+          quotePubkeyMatches: boolean; paused: boolean; vault: string; free: string };
   memwal: {
     packageId: string; registryId: string; serverUrl: string;
     borrowerDelegatePublicKeyHex: string; borrowerDelegateLabel: 'Ghostwriter underwriter';
     underwriterAccountId: string; historyNamespace: 'ghostwriter-history';
   };
   recordPubkeyHex: string;
-  enclave: { objectId: string; configId: string };
-  limits: { payoutMin: string; payoutMax: string; durationDaysMin: number; durationDaysMax: number; quoteTtlMs: number };
+  /** `objectId` and `url` are empty until a Nitro enclave is registered; the liquidation path is off until then. */
+  enclave: { objectId: string; configId: string; url: string };
+  limits: { payoutMin: string; payoutMax: string; durationDaysMin: number; durationDaysMax: number;
+            quoteTtlMs: number; minPremium: string };
   explorers: { testnetObject: string; testnetTx: string; mainnetObject: string; mainnetTx: string; walrusBlob: string };
 };
 
-export type MarketAsset = { asset: Asset; feedId: string; spotUsd: number; publishMs: number; volAnnual: number; volBucket: VolBucket };
-export type Market = { assets: MarketAsset[] };
+export type MarketAsset = { asset: Asset; feedId: string; priceObjectId: string; spotUsd: number;
+                            publishMs: number; /** Seconds since the Pyth push; compare with maxPriceAgeS. */ ageS: number;
+                            volAnnual: number; volBucket: VolBucket };
+/** Settlement aborts as stale past `maxPriceAgeS`, so show `ageS` against it. */
+export type Market = { assets: MarketAsset[]; maxPriceAgeS: number };
 
 export type BorrowerDTO = {
   address: string; memwalAccountId: string; ledgerId: string | null;
@@ -59,15 +74,38 @@ export type QuoteInput = {
   durationDays: number; obligationId?: string;
 };
 export type Citation = { namespace: string; blobId: string; kind: 'case' | 'rule' | 'record'; summary: string; distance?: number };
+/** The underwriter's verdict on whether to take this risk at all, and the exposure it weighed. */
+export type UnderwritingVerdict = 'accept' | 'counter' | 'decline';
+export type CounterOffer = { payoutUsdc?: number; triggerPriceUsd?: number; durationDays?: number; label: string };
+export type Exposure = {
+  freeUsd: number; bucketExposureUsd: number; requestShare: number;
+  bucketShareAfter: number; lossRatio: number; activePolicies: number;
+};
+export type Underwriting = {
+  verdict: UnderwritingVerdict; reason: string;
+  /** 'mandate' = a hard capital limit in code, 'llm' = the agent judged, 'rules' = model unavailable. */
+  source: 'mandate' | 'llm' | 'rules';
+  exposure: Exposure;
+};
+/** Body of a 409 UNDERWRITING_DECLINED. */
+export type DeclineDetails = {
+  verdict: 'counter' | 'decline'; counters: CounterOffer[]; exposure: Exposure; citations: Citation[];
+};
+
 export type QuoteDTO = {
   quoteId: string; buyer: string; kind: PolicyKind; kindU8: 0 | 1; asset: Asset;
   feedId: string; strikeE8: string; obligationId: string;
   payout: string; premium: string; startMs: number; endMs: number; expiresMs: number;
   signatureHex: string;
+  underwriting: Underwriting;
   pricing: { spotUsd: number; volAnnual: number; probability: number; basePremium: string;
              multiplier: number; factors: { cases: number; rules: number; borrower: number } };
   citations: Citation[];
-  explanation: string; explanationSource: 'openai' | 'fallback';
+  /** Null when SUILEND_OBLIGATION_CAP_TYPE is unset: the backend did not claim to check ownership. */
+  obligationVerified: boolean | null;
+  explanation: string;
+  /** 'llm' when the model wrote it, 'fallback' when the deterministic sentence did. */
+  explanationSource: 'llm' | 'fallback';
   moveCall: { target: string; typeArguments: [string]; argOrder: string[] };
 };
 
@@ -75,6 +113,8 @@ export type PolicyDTO = {
   policyId: string; quoteId: string; holder: string; kind: PolicyKind; asset: Asset;
   feedId: string; strikeE8: string; obligationId: string; payout: string; premium: string;
   startMs: number; endMs: number; status: PolicyStatus; breachStartedMs: number;
+  /** Set when the price came close to the strike without breaching. */
+  nearMiss?: boolean;
   buyDigest: string | null; settleDigest: string | null; settlePath: 'price' | 'liquidation' | null;
   hedge: { status: 'none' | 'queued' | 'filled' | 'refunded' | 'failed'; detail?: string };
 };
@@ -83,21 +123,31 @@ export type Rule = { ruleId: string; asset: Asset; volBucket: string; moneyBucke
                      status: RuleStatus; lesson: string; payouts: number; quietExpiries: number };
 export type Book = {
   vault: string; locked: string; free: string; premiumsCollected: string; payoutsMade: string;
-  lossRatio: number; activePolicies: number; rules: Rule[];
+  lossRatio: number; activePolicies: number; paused: boolean; policies: PolicyDTO[]; rules: Rule[];
   multiplierHistory: Array<{ at: number; quoteId: string; multiplier: number }>;
 };
-export type UnderwriterNamespace = 'cases' | 'rules' | 'quotes' | 'policies';
+export type UnderwriterNamespace = 'cases' | 'rules' | 'quotes' | 'policies' | 'decisions';
 export type UnderwriterMemory = {
   namespace: string; indexedCount: number;
   items: Array<{ blobId: string; createdAt: string | null; endEpoch: number | null; expiresAt: string | null; text: string | null }>;
 };
 export type MemoryWrites = {
-  total: number; done: number;
+  total: number; done: number; failed: number;
   items: Array<{ id: number; account: 'underwriter' | string; namespace: string; purpose: string;
                  status: MemoryWriteStatus; blobId: string | null; error: string | null; createdAt: number }>;
 };
-export type Proof = { memwalAgentId: string; underwriterAccountId: string; mainnetMemories: number; lastBlobIds: string[];
-                      packageId: string; poolId: string; enclaveObjectId: string };
+export type Proof = {
+  memwalAgentId: string; underwriterAccountId: string; memoryNetwork: 'mainnet' | 'testnet';
+  mainnetMemories: number;
+  /** Memory count per namespace, e.g. { 'ghostwriter-cases': 45 }. */
+  perNamespace: Record<string, number>;
+  lastBlobIds: string[];
+  writes: { total: number; done: number; failed: number };
+  packageId: string; poolId: string;
+  /** Empty string until an enclave is registered. */
+  enclaveObjectId: string;
+  recordPubkeyHex: string; quotePubkeyHex: string;
+};
 
 /** x402 v2 "Payment Required" body (backend §5.7). */
 export type PaymentRequired = {
@@ -135,3 +185,30 @@ export const EVENT_TYPES = [
   'policy.paid', 'policy.expired', 'warning.issued', 'liquidation.seen', 'memory.queued', 'memory.written',
   'memory.failed', 'ledger.anchored', 'rule.updated', 'hedge.placed', 'hedge.filled', 'hedge.failed', 'x402.settled',
 ] as const satisfies readonly EventType[];
+
+/** Ask the underwriter: a question answered only from its recalled memory plus its live book. */
+export type AskTurn = { role: 'user' | 'agent'; text: string };
+export type AskCitation = { namespace: string; blobId: string; summary: string; distance?: number };
+export type AskResult = {
+  answer: string;
+  citations: AskCitation[];
+  /** Memories recalled per namespace — the agent's reach for this question. */
+  recalled: Record<string, number>;
+  source: 'llm' | 'fallback';
+};
+
+/** A buying agent run from an instruction in plain English. */
+export type AgentMandate = {
+  asset: 'SUI'; triggerPct: number; payoutUsdc: number; durationDays: number; maxPremiumUsdc: number;
+};
+export type AgentStep = { title: string; detail?: string; data?: string; ok: boolean };
+export type AgentRun = {
+  brief: string;
+  mandate: AgentMandate;
+  mandateSource: 'llm' | 'fallback';
+  steps: AgentStep[];
+  outcome: 'insured' | 'declined' | 'failed';
+  policyId: string | null;
+  buyDigest: string | null;
+  premiumUsdc: number | null;
+};

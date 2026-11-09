@@ -20,7 +20,11 @@
     "agent": "tsx scripts/agent-buyer.ts",
     "e2e:price": "tsx scripts/e2e-price-path.ts",
     "mem:ping": "tsx scripts/memory-ping.ts",
-    "onboard:borrower": "tsx scripts/onboard-borrower.ts"
+    "onboard:borrower": "tsx scripts/onboard-borrower.ts",
+    "enclave:register": "tsx scripts/enclave-register.ts",
+    "enclave:upgrade": "tsx scripts/upgrade-enclave-package.ts",
+    "fund:gusd": "tsx scripts/fund-gusd.ts",
+    "enclave:register-local": "tsx scripts/enclave-register-local.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -3,7 +3,7 @@ import { createDAppKit } from '@mysten/dapp-kit-react';
 import { SuiGrpcClient } from '@mysten/sui/grpc';
 
 /**
- * Browser reads (coin lookup for the buy tx, DUSDC balance) use the public Mysten fullnodes.
+ * Browser reads (coin lookup for the buy tx, gUSD balance) use the public Mysten fullnodes.
  * The Tatum key is a backend secret, so Tatum is used server-side only (backend §1.4).
  */
 const GRPC_URLS = {

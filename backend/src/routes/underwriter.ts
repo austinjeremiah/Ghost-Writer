@@ -1,4 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { isValidSuiAddress, normalizeSuiAddress } from '@mysten/sui/utils';
+import { askUnderwriter } from '../underwriting/ask.js';
 import { db } from '../db.js';
 import { pool } from '../chain/poolCache.js';
 import { allRules } from '../memory/rules.js';
@@ -37,5 +40,20 @@ export async function underwriterRoutes(app: FastifyInstance) {
         })
         .reverse(),
     };
+  });
+
+  /**
+   * Ask the underwriter a question. It answers only from its own recalled memory plus its live
+   * book, and cites the memories it used. Read-only: nothing here can move money or change a price.
+   */
+  app.post('/v1/underwriter/ask', async (req) => {
+    const { question, history, address, context } = z.object({
+      question: z.string().trim().min(3).max(500),
+      history: z.array(z.object({ role: z.enum(['user', 'agent']), text: z.string().max(2000) })).max(12).default([]),
+      address: z.string().optional(),
+      context: z.string().max(1000).optional(),
+    }).parse(req.body);
+    const asker = address && isValidSuiAddress(address) ? normalizeSuiAddress(address) : null;
+    return askUnderwriter(question, history, asker, context);
   });
 }

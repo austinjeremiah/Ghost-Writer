@@ -135,5 +135,6 @@ console.log(JSON.stringify(body, null, 1));
 if (paid.status === 200) {
   const p = body as { policyId: string; status: string; payout: string };
   console.log(`\n✔ insured without a human: policy ${p.policyId} is ${p.status}`);
-  console.log(`  https://suiscan.xyz/testnet/object/${p.policyId}`);
+  // SuiVision, not Suiscan: Suiscan Testnet lags minutes behind and shows a fresh object as unknown.
+  console.log(`  https://testnet.suivision.xyz/object/${p.policyId}`);
 }

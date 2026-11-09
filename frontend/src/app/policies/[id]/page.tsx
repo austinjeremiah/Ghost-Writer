@@ -160,7 +160,7 @@ function BreachTimer({ p, cfg, strike }: { p: PolicyDTO; cfg: Config; strike: nu
       ) : (
         <>
           <span className="big"><Countdown to={deadline} onDone={() => setOver(true)} /></span>
-          <span className="small">Pays {fromBase(p.payout)} DUSDC if the price stays below {usd(strike)} until then.</span>
+          <span className="small">Pays {fromBase(p.payout)} gUSD if the price stays below {usd(strike)} until then.</span>
         </>
       )}
       <span className="tiny muted">The confirm transaction is sent by Ghostwriter, not by you.</span>

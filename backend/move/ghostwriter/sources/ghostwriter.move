@@ -428,6 +428,22 @@ public fun name_for_testing(): String { b"ghostwriter".to_string() }
 #[test_only]
 public fun admin_cap_for_testing(ctx: &mut TxContext): AdminCap { AdminCap { id: object::new(ctx) } }
 
+/// Shares an `EnclaveConfig<GHOSTWRITER>` at version 0 and hands back its `Cap`, exactly as `init`
+/// does. Tests of `settle_liquidation` need both, and only this module can make them: the config is
+/// created from the one-time witness, which is not constructible anywhere else.
+#[test_only]
+public fun enclave_config_for_testing(ctx: &mut TxContext): enclave::Cap<GHOSTWRITER> {
+    let cap = enclave::new_cap(GHOSTWRITER {}, ctx);
+    cap.create_enclave_config(
+        b"ghostwriter liquidation enclave".to_string(),
+        x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        x"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        ctx,
+    );
+    cap
+}
+
 /// The exact bytes `buy` verifies the quote signature over.
 #[test_only]
 public fun quote_bytes_for_testing(

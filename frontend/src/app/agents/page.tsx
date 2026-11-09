@@ -3,13 +3,13 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ConnectButton } from '@mysten/dapp-kit-react/ui';
 import { Bot, Info, Receipt, Signature, Zap } from 'lucide-react';
-import { Address, CopyButton, TxLink } from '@/components/common';
+import { AgentBrief, Address, CopyButton, TxLink } from '@/components/common';
 import { api } from '@/lib/api';
 import { userMessage } from '@/lib/errors';
 import { useEvents } from '@/lib/events';
 import { fromBase } from '@/lib/format';
 import type { Asset, PaymentRequired } from '@/lib/types';
-import { useAddress, useMarket } from '@/hooks/queries';
+import { useConfig, useAddress, useMarket } from '@/hooks/queries';
 
 const AGENT_CMD = 'pnpm agent';
 
@@ -41,6 +41,10 @@ export default function AgentsPage() {
           </ol>
         </section>
 
+        {/* The agent acting on an instruction. The raw 402 panel below it is the protocol
+            underneath, kept for anyone who wants to see the wire format. */}
+        <AgentBrief />
+
         <div className="grid-2">
           <TryIt />
           <LivePurchases />
@@ -58,6 +62,7 @@ export default function AgentsPage() {
 function TryIt() {
   const address = useAddress();
   const { data: market } = useMarket();
+  const cfg = useConfig().data;
   const [asset, setAsset] = useState<Asset>('SUI');
   const [trigger, setTrigger] = useState('');
   const [payout, setPayout] = useState('5');
@@ -92,13 +97,15 @@ function TryIt() {
 
   return (
     <section className="card stack">
-      <h2 style={{ margin: 0 }}>Try steps 1 and 2 here</h2>
+      <h2 style={{ margin: 0 }}>The protocol underneath</h2>
+      <p className="muted small" style={{ margin: 0 }}>The same request by hand, so you can read the raw x402 payment terms.</p>
       <form className="stack-sm" onSubmit={(e) => { e.preventDefault(); if (ok) ask(); }}>
         <div className="grid-2" style={{ gap: 12 }}>
           <div className="field">
             <label htmlFor="a-asset">Asset</label>
             <select id="a-asset" className="select" value={asset} onChange={(e) => { setAsset(e.target.value as Asset); setResult(null); }}>
-              <option value="SUI">SUI</option><option value="BTC">BTC</option>
+              {/* Same source of truth as /cover: whatever the backend prices. */}
+              {(cfg?.enabledAssets ?? ['SUI']).map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
           <div className="field">
@@ -106,7 +113,7 @@ function TryIt() {
             <input id="a-trigger" className="input" type="number" step="any" min="0" value={trigger} onChange={(e) => { setTrigger(e.target.value); setResult(null); }} />
           </div>
           <div className="field">
-            <label htmlFor="a-payout">Payout (DUSDC)</label>
+            <label htmlFor="a-payout">Payout (gUSD)</label>
             <input id="a-payout" className="input" type="number" step="any" min="0" value={payout} onChange={(e) => { setPayout(e.target.value); setResult(null); }} />
           </div>
           <div className="field">
@@ -129,7 +136,7 @@ function TryIt() {
           <dl className="dl small">
             <dt>Scheme</dt><dd className="mono">{terms.scheme}</dd>
             <dt>Network</dt><dd className="mono">{terms.network}</dd>
-            <dt>Amount</dt><dd>{fromBase(terms.amount)} DUSDC</dd>
+            <dt>Amount</dt><dd>{fromBase(terms.amount)} gUSD</dd>
             <dt>Pay to</dt><dd><Address id={terms.payTo} /></dd>
             <dt>Max timeout</dt><dd>{terms.maxTimeoutSeconds} s</dd>
             <dt>Resource</dt><dd>{result.resource.description}</dd>
@@ -141,8 +148,10 @@ function TryIt() {
         </div>
       )}
 
-      <p className="small">
-        To finish the purchase, run the agent in the backend folder: <code>{AGENT_CMD}</code> <CopyButton value={AGENT_CMD} label="Copy command" />
+      <p className="small muted">
+        This panel only asks for the price. Use the box above to have the agent complete the
+        purchase, or run it yourself from the backend folder: <code>{AGENT_CMD}</code>{' '}
+        <CopyButton value={AGENT_CMD} label="Copy command" />
       </p>
     </section>
   );

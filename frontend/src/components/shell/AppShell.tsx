@@ -1,5 +1,6 @@
 'use client';
 import type { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { CircleCheck, CircleX, Hash, RefreshCw, Timer, TriangleExclamationPoint } from 'lucide-react';
 import { useOnEvent } from '@/lib/events';
 import { fromBase, link, timeLeft } from '@/lib/format';
@@ -9,7 +10,16 @@ import { MobileNav, Sidebar } from './Sidebar';
 import { ToastProvider, useToast } from './Toasts';
 import { TopBar } from './TopBar';
 
+/** Routes rendered full-bleed, outside the app chrome. */
+const BARE_ROUTES = new Set(['/']);
+
 export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  // The landing is its own page: no sidebar, no top bar. Toasts still mount so a wallet
+  // connection made from the landing can announce itself.
+  if (BARE_ROUTES.has(pathname)) {
+    return <ToastProvider>{children}</ToastProvider>;
+  }
   return (
     <ToastProvider>
       <GlobalToasts />
@@ -60,8 +70,9 @@ function GlobalToasts() {
       case 'policy.paid':
         if (e.data.holder !== address) return;
         toast({
+          sticky: true,
           icon: CircleCheck,
-          text: `${fromBase(e.data.payout)} DUSDC paid to your wallet.`,
+          text: `${fromBase(e.data.payout)} gUSD paid to your wallet.`,
           action: cfg ? { label: 'View tx', href: link.testnetTx(cfg, e.data.digest), external: true } : undefined,
         });
         break;

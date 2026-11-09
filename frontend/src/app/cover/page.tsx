@@ -8,8 +8,9 @@ import { isValidSuiAddress, normalizeSuiAddress } from '@mysten/sui/utils';
 import {
   ArrowDownRight, ArrowUpRight, Brain, Database, KeyRound, Landmark, RefreshCw, ScrollText, Timer, TrendingDown, Wallet, Zap,
 } from 'lucide-react';
-import { BlobLink, Countdown, ErrorState, StepList, TxLink, type Step } from '@/components/common';
+import { AskUnderwriter, BlobLink, Countdown, ErrorState, StepList, TxLink, type Step } from '@/components/common';
 import { api, ApiError } from '@/lib/api';
+import type { CounterOffer, DeclineDetails } from '@/lib/types';
 import { buyAndConfirm, type BuyStep } from '@/lib/buy';
 import { abortFromMessage, userMessage } from '@/lib/errors';
 import { date, distanceToTrigger, fromBase, pct, shortId, usd } from '@/lib/format';
@@ -18,7 +19,7 @@ import { qk, useAddress, useConfig, useMarket, usePositions } from '@/hooks/quer
 import { useBorrower } from '@/hooks/useBorrower';
 import { dusdcKey, useDusdc } from '@/hooks/useDusdc';
 
-const DUSDC_FORM = 'https://tally.so/r/Xx102L';
+
 
 export default function CoverPage() {
   const config = useConfig();
@@ -36,7 +37,7 @@ export default function CoverPage() {
 
   const [quote, setQuote] = useState<QuoteDTO | null>(null);
   const [quoting, setQuoting] = useState(false);
-  const [quoteError, setQuoteError] = useState<{ message: string; needsOnboard?: boolean } | null>(null);
+  const [quoteError, setQuoteError] = useState<{ message: string; needsOnboard?: boolean; decline?: DeclineDetails } | null>(null);
 
   const cfg = config.data;
   const spot = market.data?.assets.find((a) => a.asset === asset);
@@ -60,7 +61,7 @@ export default function CoverPage() {
       : !(triggerN > 0) ? 'Trigger must be above 0.'
       : spot && triggerN >= spot.spotUsd ? "Trigger must be below today's price." : null,
     payout: payout === '' || !limits ? null
-      : !(payoutN >= limits.payoutMin && payoutN <= limits.payoutMax) ? `Payout must be between ${limits.payoutMin} and ${limits.payoutMax} DUSDC.` : null,
+      : !(payoutN >= limits.payoutMin && payoutN <= limits.payoutMax) ? `Payout must be between ${limits.payoutMin} and ${limits.payoutMax} gUSD.` : null,
     days: days === '' || !limits ? null
       : !Number.isInteger(daysN) || daysN < limits.daysMin || daysN > limits.daysMax ? `Length must be a whole number of days, ${limits.daysMin}–${limits.daysMax}.` : null,
     obligation: kind !== 'liquidation' || obligationId === '' ? null
@@ -85,8 +86,21 @@ export default function CoverPage() {
       setQuote(await api.quote(input));
     } catch (e) {
       const needsOnboard = kind === 'liquidation' && e instanceof ApiError && e.status === 404;
-      setQuoteError({ message: needsOnboard ? 'Set up memory first.' : userMessage(e), needsOnboard });
+      // The underwriter said no. That is an answer, not a failure: keep the counter-offers so the
+      // user can take one in a click.
+      const decline = e instanceof ApiError && e.code === 'UNDERWRITING_DECLINED'
+        ? (e.details as unknown as DeclineDetails)
+        : undefined;
+      setQuoteError({ message: needsOnboard ? 'Set up memory first.' : userMessage(e), needsOnboard, decline });
     } finally { setQuoting(false); }
+  }
+
+  /** Accept one of the underwriter's counter-offers: apply its terms and ask again. */
+  function takeCounter(c: CounterOffer) {
+    if (c.payoutUsdc !== undefined) setPayout(String(c.payoutUsdc));
+    if (c.triggerPriceUsd !== undefined) setTrigger(String(c.triggerPriceUsd));
+    if (c.durationDays !== undefined) setDays(String(c.durationDays));
+    setQuoteError(null);
   }
 
   if (config.isError) return <><Header /><ErrorState error={config.error} onRetry={() => config.refetch()} /></>;
@@ -128,8 +142,8 @@ export default function CoverPage() {
               <div className="field">
                 <label htmlFor="asset">Asset</label>
                 <select id="asset" className="select" value={asset} onChange={(e) => edit(setAsset)(e.target.value as Asset)}>
-                  <option value="SUI">SUI</option>
-                  <option value="BTC">BTC</option>
+                  {/* Only assets the backend actually prices. BTC is off: its Testnet feed is stale. */}
+                  {(cfg?.enabledAssets ?? ['SUI']).map((a) => <option key={a} value={a}>{a}</option>)}
                 </select>
                 {spot && <span className="hint">Now {usd(spot.spotUsd)}, volatility {pct(spot.volAnnual)} a year ({spot.volBucket})</span>}
               </div>
@@ -174,12 +188,12 @@ export default function CoverPage() {
 
               <div className="grid-2" style={{ gap: 16 }}>
                 <div className="field">
-                  <label htmlFor="payout">Payout (DUSDC)</label>
+                  <label htmlFor="payout">Payout (gUSD)</label>
                   <input
                     id="payout" className="input" type="number" inputMode="decimal" min={limits?.payoutMin} max={limits?.payoutMax} step="any"
                     value={payout} aria-invalid={!!errors.payout} onChange={(e) => edit(setPayout)(e.target.value)}
                   />
-                  {limits && <span className="hint">{limits.payoutMin}–{limits.payoutMax} DUSDC</span>}
+                  {limits && <span className="hint">{limits.payoutMin}–{limits.payoutMax} gUSD</span>}
                   {errors.payout && <span className="field-error">{errors.payout}</span>}
                 </div>
                 <div className="field">
@@ -209,8 +223,28 @@ export default function CoverPage() {
               )}
               {cfg?.pool.paused && <span className="field-error">New cover is paused.</span>}
               {quoteError && (
-                <div className="note note--deny" role="alert">
+                <div className="note note--deny" role="alert" style={{ display: 'block' }}>
                   <span>{quoteError.message}{quoteError.needsOnboard && <> <Link className="linkbtn" href="/onboard">Set up memory</Link></>}</span>
+                  {quoteError.decline && (
+                    <>
+                      <div className="small" style={{ marginTop: 8, opacity: 0.85 }}>
+                        Free capital {quoteError.decline.exposure.freeUsd.toFixed(2)} gUSD ·
+                        {' '}already in this bucket {quoteError.decline.exposure.bucketExposureUsd.toFixed(2)} gUSD
+                      </div>
+                      {quoteError.decline.counters.length > 0 && (
+                        <div className="stack-sm" style={{ marginTop: 10 }}>
+                          <span className="small"><strong>Terms it would accept:</strong></span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {quoteError.decline.counters.map((c) => (
+                              <button key={c.label} type="button" className="btn btn--sm" onClick={() => takeCounter(c)}>
+                                {c.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </fieldset>
@@ -276,8 +310,8 @@ function QuotePanel({ quote: q, cfg, registered, onClear, onRequote }: {
       <section className="card stack" aria-live="polite">
         <div className="row-between">
           <div>
-            <div className="big">{fromBase(q.premium)} <span className="big-sm">DUSDC</span></div>
-            <div className="muted">for {fromBase(q.payout)} DUSDC of cover</div>
+            <div className="big">{fromBase(q.premium)} <span className="big-sm">gUSD</span></div>
+            <div className="muted">for {fromBase(q.payout)} gUSD of cover</div>
           </div>
           <span className={`badge ${expired ? 'badge--deny' : ''}`}>
             <Timer size={13} /> {expired ? 'Price expired' : <>Price held for <Countdown to={q.expiresMs} onDone={() => setExpired(true)} /></>}
@@ -325,8 +359,49 @@ function QuotePanel({ quote: q, cfg, registered, onClear, onRequote }: {
           </ul>
         )}
         <hr className="divider" style={{ margin: '12px 0' }} />
+        {/* The underwriting verdict: why this book agreed to take the risk, and what it weighed.
+            Pricing says how much; this says whether at all. */}
+        <div className="note" style={{ display: 'block', marginBottom: 10 }}>
+          <span className="badge">Underwriter: {q.underwriting.verdict}</span>
+          <span className="badge badge--muted" style={{ marginLeft: 6 }}>
+            {q.underwriting.source === 'llm' ? 'agent judged' : q.underwriting.source === 'mandate' ? 'capital limit' : 'fallback rules'}
+          </span>
+          <p className="small" style={{ margin: '8px 0 0' }}>{q.underwriting.reason}</p>
+          <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
+            Free capital {q.underwriting.exposure.freeUsd.toFixed(2)} gUSD ·
+            {' '}this policy is {(q.underwriting.exposure.requestShare * 100).toFixed(1)}% of it ·
+            {' '}bucket after {(q.underwriting.exposure.bucketShareAfter * 100).toFixed(1)}%
+          </div>
+        </div>
         <p>{q.explanation}</p>
-        <span className="badge badge--muted" style={{ marginTop: 8 }}>{q.explanationSource === 'openai' ? 'Written by AI' : 'Standard explanation'}</span>
+        <span className="badge badge--muted" style={{ marginTop: 8 }}>{q.explanationSource === 'llm' ? 'Written by AI' : 'Standard explanation'}</span>
+
+        <hr className="divider" style={{ margin: '14px 0' }} />
+        {/* Carry on the conversation where it starts. This quote's own numbers travel with the
+            question, so "this quote" and "cheaper" have a referent. */}
+        <AskUnderwriter
+          embedded
+          title="Ask about this quote"
+          subtitle="Answers come from its memory and this quote's numbers, with the blobs it used."
+          context={[
+            `quoteId ${q.quoteId}`,
+            `${q.asset} ${q.kind} cover`,
+            `trigger $${(Number(q.strikeE8) / 1e8).toFixed(4)}`,
+            `spot $${q.pricing.spotUsd.toFixed(4)}`,
+            `payout ${fromBase(q.payout)} gUSD`,
+            `premium ${fromBase(q.premium)} gUSD`,
+            `probability ${q.pricing.probability}`,
+            `memory multiplier x${q.pricing.multiplier}`,
+            `factors cases x${q.pricing.factors.cases}, rules x${q.pricing.factors.rules}, borrower x${q.pricing.factors.borrower}`,
+            `underwriting verdict ${q.underwriting.verdict} (${q.underwriting.source}): ${q.underwriting.reason}`,
+            `cited memories: ${q.citations.map((c) => `${c.blobId.slice(0, 8)} ${c.summary}`).join(' | ')}`,
+          ].join('; ').slice(0, 1000)}
+          suggestions={[
+            'Why is this premium what it is?',
+            'What would make it cheaper?',
+            'How sure are you about that hit rate?',
+          ]}
+        />
       </section>
 
       <BuyBox quote={q} cfg={cfg} expired={expired} onClear={onClear} onRequote={onRequote} />
@@ -391,7 +466,7 @@ function BuyBox({ quote: q, cfg, expired, onClear, onRequote }: {
   ];
 
   const lines = useMemo(() => [
-    `Pays ${fromBase(q.payout)} DUSDC to ${shortId(q.buyer)}`,
+    `Pays ${fromBase(q.payout)} gUSD to ${shortId(q.buyer)}`,
     `Covers ${date(q.startMs)} → ${date(q.endMs)}`,
     'Signs on Sui Testnet',
   ], [q]);
@@ -404,7 +479,9 @@ function BuyBox({ quote: q, cfg, expired, onClear, onRequote }: {
       {low && !bought && (
         <div className="note note--warn">
           <Wallet size={16} />
-          <span>You have {fromBase(balance.data!)} DUSDC. <a className="linkbtn" href={DUSDC_FORM} target="_blank" rel="noreferrer">Get test DUSDC</a></span>
+          <span>You have {fromBase(balance.data!)} gUSD.{' '}
+            {cfg && <a className="linkbtn" href={`${cfg.explorers.testnetObject}${cfg.coinFaucetId}`} target="_blank" rel="noreferrer">Get test gUSD</a>}
+          </span>
         </div>
       )}
 
@@ -426,7 +503,7 @@ function BuyBox({ quote: q, cfg, expired, onClear, onRequote }: {
             <button type="button" className="btn" onClick={onRequote}><RefreshCw size={16} /> Get a new quote</button>
           ) : (
             <button type="button" className="btn" disabled={low || cfg.pool.paused || step === 'wallet' || balance.isPending} onClick={buy}>
-              <Wallet size={16} /> {step === 'wallet' ? 'Waiting for wallet…' : `Buy cover for ${fromBase(q.premium)} DUSDC`}
+              <Wallet size={16} /> {step === 'wallet' ? 'Waiting for wallet…' : `Buy cover for ${fromBase(q.premium)} gUSD`}
             </button>
           )
       )}

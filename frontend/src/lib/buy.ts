@@ -58,7 +58,7 @@ export async function buyAndConfirm(q: QuoteDTO, cfg: Config, onStep: (s: BuySte
   }
 }
 
-/** DUSDC the connected wallet holds on Testnet (base units string). */
+/** gUSD the connected wallet holds on Testnet (base units string). */
 export async function dusdcBalance(cfg: Config, owner: string): Promise<string> {
   const { balance } = await dAppKit.getClient('testnet').getBalance({ owner, coinType: cfg.coinType });
   return balance.balance;

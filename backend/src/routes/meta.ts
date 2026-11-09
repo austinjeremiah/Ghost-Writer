@@ -64,10 +64,13 @@ export async function metaRoutes(app: FastifyInstance) {
         durationDaysMin: 1, durationDaysMax: 30, quoteTtlMs: C.QUOTE_TTL_MS, minPremium: C.MIN_PREMIUM.toString(),
       },
       explorers: {
-        testnetObject: 'https://suiscan.xyz/testnet/object/',
-        testnetTx: 'https://suiscan.xyz/testnet/tx/',
-        mainnetObject: 'https://suiscan.xyz/mainnet/object/',
-        mainnetTx: 'https://suiscan.xyz/mainnet/tx/',
+        // SuiVision rather than Suiscan: Suiscan's Testnet indexer lags by many minutes and renders
+        // a just-settled transaction as "Unknown", which makes a live settlement look like it did
+        // not happen. SuiVision showed the same digests within seconds.
+        testnetObject: 'https://testnet.suivision.xyz/object/',
+        testnetTx: 'https://testnet.suivision.xyz/txblock/',
+        mainnetObject: 'https://suivision.xyz/object/',
+        mainnetTx: 'https://suivision.xyz/txblock/',
         walrusBlob: 'https://walruscan.com/mainnet/blob/',
       },
     };
@@ -128,13 +131,15 @@ export async function metaRoutes(app: FastifyInstance) {
   /** What the underwriter remembers in one namespace: indexed count plus recalled text. */
   app.get('/v1/underwriter/memory', async (req) => {
     const { namespace, limit } = z.object({
-      namespace: z.enum(['cases', 'rules', 'quotes', 'policies']).default('cases'),
+      namespace: z.enum(['cases', 'rules', 'quotes', 'policies', 'decisions']).default('cases'),
       limit: z.coerce.number().int().min(1).max(100).default(20),
     }).parse(req.query);
     const ns = C.NS[namespace];
     const [indexed, hits] = await Promise.all([
       listAll(underwriter, ns).catch(() => []),
-      recall(underwriter, ns, namespace === 'rules' ? 'underwriting rule' : `ghostwriter ${namespace}`, limit, 'recent').catch(() => []),
+      recall(underwriter, ns, namespace === 'rules' ? 'underwriting rule'
+        : namespace === 'decisions' ? 'underwriting decision verdict'
+        : `ghostwriter ${namespace}`, limit, 'recent').catch(() => []),
     ]);
     const byBlob = new Map(hits.map((h) => [h.blobId, h.text]));
     return {

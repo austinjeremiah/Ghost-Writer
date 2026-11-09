@@ -10,7 +10,8 @@ import { log } from '../log.js';
 const client = new OpenAI({ apiKey: env.VULTR_INFERENCE_API_KEY, baseURL: env.VULTR_INFERENCE_BASE_URL });
 
 const QUOTE_SYSTEM = `You explain an insurance quote to a crypto borrower in at most 90 words.
-Use only the facts provided; never invent numbers. Name each memory that changed the price by its short id (first 8 characters) and say whether it raised or lowered the price.
+Use only the facts provided; never invent numbers. Name each memory that changed the price by its short id (first 8 characters) and say whether it raised or lowered the price, and why — quote the hit rate from its summary when there is one.
+Amounts are denominated in the value of the "currency" field. Use that name exactly; never write USD, USDC or dollars.
 Do not give financial advice. Plain English, no headings, no markdown.`;
 
 const LESSON_SYSTEM = `You write a one-sentence underwriting lesson (max 30 words) from a loss on a liquidation-protection policy.
@@ -22,7 +23,7 @@ Use only the facts provided. Start with the bucket, for example "SUI, high vol, 
  * turns that off (confirmed against the endpoint: 0 reasoning tokens, answer in ~6). The generous
  * budget and the <think> stripping below stay as belt and braces for a model that ignores the flag.
  */
-async function complete(system: string, facts: unknown, maxTokens: number): Promise<string | null> {
+export async function complete(system: string, facts: unknown, maxTokens: number): Promise<string | null> {
   try {
     const r = await client.chat.completions.create(
       {

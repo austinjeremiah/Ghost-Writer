@@ -6,7 +6,7 @@ import Logo from '@/components/icons/logo';
 import { useBorrower } from '@/hooks/useBorrower';
 
 export const NAV = [
-  { label: 'Home', href: '/', Icon: LayoutDashboard },
+  { label: 'Home', href: '/home', Icon: LayoutDashboard },
   { label: 'Get cover', href: '/cover', Icon: ShieldPlus },
   { label: 'My policies', href: '/policies', Icon: ListChecks },
   { label: 'My memory', href: '/memory', Icon: Brain },

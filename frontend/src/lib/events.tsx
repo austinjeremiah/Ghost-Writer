@@ -63,10 +63,17 @@ export function useOnEvent<T extends EventType>(types: T[], fn: (e: Extract<AnyE
 function applyToCache(qc: ReturnType<typeof useQueryClient>, ev: AnyEvent) {
   switch (ev.type) {
     case 'price.tick':
+      // Spread `m` so fields the tick does not carry (maxPriceAgeS, feedId, priceObjectId, vol)
+      // survive. `ageS` is recomputed from the new publishMs, so the staleness badge stays honest
+      // between the slower /v1/market refetches.
       qc.setQueryData<Market>(qk.market, (m) => m && {
+        ...m,
         assets: m.assets.map((a) => {
           const p = ev.data.prices.find((x) => x.asset === a.asset);
-          return p ? { ...a, spotUsd: p.spotUsd, publishMs: p.publishMs } : a;
+          return p
+            ? { ...a, spotUsd: p.spotUsd, publishMs: p.publishMs,
+                ageS: Math.max(0, Math.round((Date.now() - p.publishMs) / 1000)) }
+            : a;
         }),
       });
       break;

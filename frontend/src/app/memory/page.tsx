@@ -127,10 +127,10 @@ function recordTitle(r: HistoryRecord): string {
   const d = r.data;
   switch (r.kind) {
     case 'onboarded': return 'Linked your memory account';
-    case 'policy_bought': return `Bought ${str(d.kind)} cover, payout ${d.payout != null ? fromBase(str(d.payout)) : '?'} DUSDC`;
+    case 'policy_bought': return `Bought ${str(d.kind)} cover, payout ${d.payout != null ? fromBase(str(d.payout)) : '?'} gUSD`;
     case 'warning': return `Warned: price near trigger (${usd(num(d.spotUsd))} vs ${usd(num(d.strikeUsd))})`;
     case 'response': return `Responded: ${d.action === 'deposit' ? 'added collateral' : 'repaid debt'} on Suilend`;
-    case 'payout': return `Received ${d.payout != null ? fromBase(str(d.payout)) : '?'} DUSDC (${str(d.path)})`;
+    case 'payout': return `Received ${d.payout != null ? fromBase(str(d.payout)) : '?'} gUSD (${str(d.path)})`;
     case 'expired': return `Cover ended${d.nearMiss ? ' after a near miss' : ''}`;
   }
 }

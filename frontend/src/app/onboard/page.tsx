@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ConnectButton } from '@mysten/dapp-kit-react/ui';
 import { isValidSuiAddress, normalizeSuiAddress } from '@mysten/sui/utils';
 import { Brain, CircleCheck, Info, KeyRound, LoaderCircle, ShieldPlus } from 'lucide-react';
-import { Address, BlobLink, ErrorState, StepList, TxLink, type Step } from '@/components/common';
+import { Address, BlobLink, ErrorState, StepList, TxLink, WalletCapabilities, type Step } from '@/components/common';
 import { api, ApiError } from '@/lib/api';
 import { userMessage } from '@/lib/errors';
 import { useOnEvent } from '@/lib/events';
@@ -215,6 +215,9 @@ export default function OnboardPage() {
           {!isDone && (
             <div className="note"><Info size={16} /><span>These two steps sign on <strong>Sui Mainnet</strong> and need a little SUI for gas. Buying cover later happens on Testnet.</span></div>
           )}
+          {/* States up front whether this account can sign on Mainnet at all, instead of letting it
+              fail inside the wallet with an empty error. */}
+          {!isDone && <WalletCapabilities />}
           <section className="card">
             <StepList steps={steps} />
             {!isDone && current >= 2 && !accountId && !pasteOpen && (

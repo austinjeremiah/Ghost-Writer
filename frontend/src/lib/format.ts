@@ -1,7 +1,7 @@
 // lib/format.ts
 import type { Config, RecordKind } from './types';
 
-const DEC = 6; // DUSDC decimals (also in /v1/config.coinDecimals)
+const DEC = 6; // gUSD decimals (also in /v1/config.coinDecimals)
 
 /** "1940000" → "1.94" */
 export function fromBase(units: string, decimals = DEC, dp = 2): string {

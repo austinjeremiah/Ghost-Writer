@@ -1,89 +1,84 @@
 'use client';
+// The landing. Rendered full-bleed — AppShell leaves '/' outside the sidebar chrome.
+//
+// This replaces the scraped template's hero, which advertised a different product
+// ("We're just sending forms / and that's all"). The dot-grid treatment and the cream/royal
+// palette are kept; the words are ours.
 import Link from 'next/link';
-import { Activity, Brain, CircleCheck, Database, KeyRound, ShieldCheck, ShieldPlus, Wallet } from 'lucide-react';
-import { BlobLink, ErrorState } from '@/components/common';
-import { userMessage } from '@/lib/errors';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { ConnectButton } from '@mysten/dapp-kit-react/ui';
+import { ArrowRight, Brain, CircleCheck, Database, ShieldPlus } from 'lucide-react';
+import { DotPattern } from '@/components/ui/dot-pattern';
+import { useAddress, useMarket, useProof } from '@/hooks/queries';
 import { usd } from '@/lib/format';
-import { useBook, useMarket, useProof } from '@/hooks/queries';
-import { useBorrower } from '@/hooks/useBorrower';
+import Logo from '@/components/icons/logo';
 
-const STEPS = [
-  { Icon: ShieldPlus, title: 'Ask for cover', body: 'Pick a trigger, a payout and a length.' },
-  { Icon: Brain, title: 'See why it costs that', body: 'The price shows which past cases, rules and records changed it.' },
-  { Icon: Wallet, title: 'Buy in one transaction', body: 'Your wallet pays the premium into the vault on Sui Testnet.' },
-  { Icon: CircleCheck, title: 'Get paid without a claim', body: 'A Pyth price check or a Nautilus-verified liquidation triggers the payout.' },
+const POINTS = [
+  { Icon: Brain, title: 'It remembers', body: 'Every quote cites the past cases on Walrus Memory that moved its price.' },
+  { Icon: CircleCheck, title: 'No claim to file', body: 'A Pyth price check or a TEE-verified liquidation pays you automatically.' },
+  { Icon: Database, title: 'The memory is yours', body: 'Your record lives in your own Walrus account. Revoke us any time.' },
 ];
 
-export default function HomePage() {
-  const proof = useProof();
-  const book = useBook();
+export default function LandingPage() {
+  const address = useAddress();
+  const router = useRouter();
   const market = useMarket();
-  const { status } = useBorrower();
+  const proof = useProof();
   const sui = market.data?.assets.find((a) => a.asset === 'SUI');
 
+  // Connecting from the landing moves you into the app. Every page stays reachable by URL, so a
+  // wallet that misbehaves never leaves you with nothing to show.
+  useEffect(() => { if (address) router.push('/home'); }, [address, router]);
+
   return (
-    <div className="stack" style={{ gap: 28 }}>
-      <section className="stack" style={{ paddingTop: 12 }}>
-        <h1 className="page-title" style={{ fontSize: 'clamp(34px, 5vw, 60px)', maxWidth: 900 }}>
+    <main className="gw-landing">
+      <DotPattern width={32} height={32} cr={1.4} className="gw-landing__dots" />
+
+      <header className="gw-landing__bar">
+        <Link href="/" className="gw-brand" aria-label="Ghostwriter"><Logo /></Link>
+        <nav className="gw-landing__nav">
+          <Link href="/underwriter">Underwriter</Link>
+          <Link href="/proof">Proof</Link>
+          <ConnectButton />
+        </nav>
+      </header>
+
+      <section className="gw-landing__hero">
+        <h1 className="gw-landing__title">
           Liquidation cover priced by an underwriter that <em>remembers.</em>
         </h1>
-        <p className="page-sub" style={{ fontSize: 17 }}>
-          Ghostwriter pays you automatically if SUI or BTC falls below your trigger, or if your Suilend position is liquidated.
-          Its prices learn from every past outcome, stored on Walrus Memory.
+        <p className="gw-landing__sub">
+          Ghostwriter pays you automatically if SUI falls below your trigger, or if your Suilend
+          position is liquidated. Its prices learn from every past outcome, stored on Walrus Memory.
         </p>
-        <div className="row">
-          <Link className="btn" href="/cover"><ShieldPlus size={16} /> Get cover</Link>
-          {status === 'registered'
-            ? <Link className="btn btn--ghost" href="/memory"><Brain size={16} /> My memory</Link>
-            : <Link className="btn btn--ghost" href="/onboard"><KeyRound size={16} /> Set up my memory</Link>}
-        </div>
-      </section>
 
-      {!(proof.isError && book.isError && market.isError) && <section className="card grid-3">
-        {!proof.isError && (
-          <Link href="/proof" className="figure" aria-label="Memories on Walrus Mainnet, see proof">
-            <span className="big">{proof.data ? proof.data.mainnetMemories.toLocaleString('en-US') : '—'}</span>
-            <span className="label"><Database size={14} /> memories on Walrus Mainnet</span>
+        <div className="gw-landing__cta">
+          <Link className="gw-btn gw-btn--primary" href="/cover">
+            <ShieldPlus size={18} /> Get cover
           </Link>
-        )}
-        {!book.isError && (
-          <div className="figure">
-            <span className="big">{book.data ? book.data.activePolicies : '—'}</span>
-            <span className="label"><ShieldCheck size={14} /> active policies</span>
-          </div>
-        )}
-        {!market.isError && (
-          <div className="figure">
-            <span className="big">{sui ? usd(sui.spotUsd, 3) : '—'}</span>
-            <span className="label"><Activity size={14} /> SUI price from Pyth</span>
-          </div>
-        )}
-      </section>}
-      {/* One message per distinct error (when the backend is down all three fail the same way). */}
-      {[...new Map(
-        [proof, book, market].filter((q) => q.isError).map((q) => [userMessage(q.error), q] as const),
-      )].map(([msg]) => (
-        <ErrorState key={msg} error={new Error(msg)} onRetry={() => { proof.refetch(); book.refetch(); market.refetch(); }} />
-      ))}
+          <Link className="gw-btn" href="/home">
+            See it live <ArrowRight size={16} />
+          </Link>
+        </div>
 
-      <section className="card">
-        <h2>How it works</h2>
-        <ol className="grid-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          {STEPS.map(({ Icon, title, body }, i) => (
-            <li key={title} className="stack-sm">
-              <span className="row strong"><Icon size={18} /> {i + 1}. {title}</span>
-              <span className="small muted">{body}</span>
-            </li>
-          ))}
-        </ol>
+        {/* Live figures, so the first thing a visitor sees is real rather than claimed. */}
+        <dl className="gw-landing__stats">
+          <div><dt>SUI now</dt><dd>{sui ? usd(sui.spotUsd) : '—'}</dd></div>
+          <div><dt>Memories on Mainnet</dt><dd>{proof.data?.mainnetMemories ?? '—'}</dd></div>
+          <div><dt>Policies settle on</dt><dd>Sui Testnet</dd></div>
+        </dl>
       </section>
 
-      {proof.data && proof.data.lastBlobIds.length > 0 && (
-        <section className="row small">
-          <span className="muted">Latest memory:</span>
-          {proof.data.lastBlobIds.slice(0, 3).map((b) => <BlobLink key={b} blobId={b} />)}
-        </section>
-      )}
-    </div>
+      <section className="gw-landing__points">
+        {POINTS.map(({ Icon, title, body }) => (
+          <article key={title}>
+            <Icon size={20} />
+            <h2>{title}</h2>
+            <p>{body}</p>
+          </article>
+        ))}
+      </section>
+    </main>
   );
 }

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, Bot, CircleX, Coins, Database, ScrollText, Zap } from 'lucide-react';
-import { Amount, BlobLink, ErrorState, TxLink } from '@/components/common';
+import { AskUnderwriter, Amount, BlobLink, ErrorState, TxLink } from '@/components/common';
 import { useEvents, useOnEvent, type AnyEvent } from '@/lib/events';
 import { date, fromBase, pct, shortId } from '@/lib/format';
 import type { Book, MemoryWriteStatus, UnderwriterNamespace } from '@/lib/types';
@@ -19,6 +19,8 @@ export default function UnderwriterPage() {
       </div>
       <div className="stack">
         <Vault />
+        {/* Talk to the agent. Every answer is grounded in the memories listed under it. */}
+        <AskUnderwriter />
         <div className="grid-main-side">
           <div className="stack">
             <Rules />
@@ -47,7 +49,7 @@ function Vault() {
     <section className="card stack">
       <div className="figure">
         <span className="big">{b ? fromBase(b.vault) : '—'}</span>
-        <span className="label">DUSDC in the vault (Testnet)</span>
+        <span className="label">gUSD in the vault (Testnet)</span>
       </div>
       <div className="stack-sm">
         <div className="bar" role="img" aria-label={b ? `${lockedPct}% locked for active policies` : 'Loading'}>
@@ -108,50 +110,104 @@ function MultiplierChart() {
   const pts = book.data?.multiplierHistory ?? [];
   return (
     <section className="card">
-      <h2>Price multiplier over time</h2>
-      {book.isPending ? <div className="skeleton" style={{ height: 160 }} />
+      <h2>How memory moved the price</h2>
+      {book.isPending ? <div className="skeleton" style={{ height: 190 }} />
         : book.isError ? null
         : pts.length === 0 ? <p className="muted">No quotes yet.</p>
         : <MultiplierSvg history={pts} />}
-      <p className="tiny muted" style={{ marginTop: 8 }}>Each point is a quote. Jumps happen when a new memory changes the price.</p>
+      <p className="tiny muted" style={{ marginTop: 8 }}>
+        One bar per quote, newest on the right. Above the line memory made the cover dearer than the
+        model alone; below it, cheaper.
+      </p>
     </section>
   );
 }
 
+/**
+ * Bars diverging from ×1.00 rather than a line against a time axis.
+ *
+ * A time axis made this unreadable: quotes arrive in bursts, so hours of inactivity ate most of the
+ * width and every interesting point was crushed into the right edge. What matters here is not when
+ * a quote happened but whether memory raised or lowered it, so each quote gets equal width and the
+ * baseline is ×1.00 — "the model's own price, unchanged".
+ */
 function MultiplierSvg({ history }: { history: Book['multiplierHistory'] }) {
-  const W = 640, H = 200, L = 40, R = 10, T = 10, B = 24;
-  const pts = [...history].sort((a, b) => a.at - b.at);
-  const lo = 0.6; // backend clamp minimum
-  const hi = Math.max(1.2, ...pts.map((p) => p.multiplier)) * 1.05;
-  const t0 = pts[0].at, t1 = pts[pts.length - 1].at;
-  const x = (t: number) => L + (t1 === t0 ? (W - L - R) / 2 : ((t - t0) / (t1 - t0)) * (W - L - R));
+  const W = 640, H = 190, L = 40, R = 12, T = 14, B = 26;
+  const MAX_BARS = 48;
+  const pts = [...history].sort((a, b) => a.at - b.at).slice(-MAX_BARS);
+  const [hover, setHover] = useState<number | null>(null);
+
+  const hi = Math.max(1.6, ...pts.map((p) => p.multiplier)) * 1.08;
+  const lo = Math.min(0.6, ...pts.map((p) => p.multiplier)) * 0.95;
   const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-  const ticks = [0.6, 1, ...(hi > 2 ? [2] : []), ...(hi > 3 ? [3] : [])];
+  const band = (W - L - R) / pts.length;
+  const barW = Math.max(2, Math.min(14, band * 0.62));
+  const cx = (i: number) => L + band * (i + 0.5);
+
+  const ticks = [lo < 0.8 ? 0.6 : undefined, 1, hi > 2 ? 2 : undefined, hi > 3 ? 3 : undefined]
+    .filter((v): v is number => v !== undefined);
+  const base = y(1);
+  const active = hover === null ? null : pts[hover];
+
   return (
-    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Multiplier for ${pts.length} quotes`}>
-      {ticks.map((v) => (
-        <g key={v}>
-          <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="var(--cl-line)" strokeDasharray={v === 1 ? undefined : '3 4'} />
-          <text x={L - 6} y={y(v) + 4} textAnchor="end" fontSize={11} fill="var(--cl-ink-3)">×{v.toFixed(1)}</text>
-        </g>
-      ))}
-      <text x={L} y={H - 6} fontSize={11} fill="var(--cl-ink-3)">{date(t0)}</text>
-      {t1 !== t0 && <text x={W - R} y={H - 6} textAnchor="end" fontSize={11} fill="var(--cl-ink-3)">{date(t1)}</text>}
-      {pts.length > 1 && (
-        <polyline fill="none" stroke="var(--cl-ink)" strokeWidth={2} strokeLinejoin="round"
-          points={pts.map((p) => `${x(p.at).toFixed(1)},${y(p.multiplier).toFixed(1)}`).join(' ')} />
+    <div className="chart-wrap" onMouseLeave={() => setHover(null)}>
+      <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img"
+           aria-label={`Price multiplier for the last ${pts.length} quotes`}>
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={L} x2={W - R} y1={y(v)} y2={y(v)}
+                  stroke={v === 1 ? 'var(--cl-line-strong)' : 'var(--cl-line)'}
+                  strokeDasharray={v === 1 ? undefined : '3 4'} />
+            <text x={L - 6} y={y(v) + 4} textAnchor="end" fontSize={11} fill="var(--cl-ink-3)">×{v.toFixed(1)}</text>
+          </g>
+        ))}
+
+        {pts.map((p, i) => {
+          const up = p.multiplier >= 1;
+          const top = y(Math.max(p.multiplier, 1));
+          const h = Math.max(1.5, Math.abs(y(p.multiplier) - base));
+          return (
+            <g key={`${p.quoteId}:${p.at}`}>
+              <rect x={cx(i) - barW / 2} y={top} width={barW} height={h} rx={2}
+                    fill={up ? 'var(--cl-ink)' : 'var(--cl-accent)'}
+                    opacity={hover === null || hover === i ? (up ? 0.92 : 0.8) : 0.3} />
+              {/* A full-height, invisible hit area: the bars are too thin to aim at. */}
+              <rect x={cx(i) - band / 2} y={T} width={band} height={H - T - B}
+                    fill="transparent" onMouseEnter={() => setHover(i)} />
+            </g>
+          );
+        })}
+
+        <text x={L} y={H - 7} fontSize={11} fill="var(--cl-ink-3)">{date(pts[0].at)}</text>
+        {pts.length > 1 && (
+          <text x={W - R} y={H - 7} textAnchor="end" fontSize={11} fill="var(--cl-ink-3)">{date(pts[pts.length - 1].at)}</text>
+        )}
+      </svg>
+
+      {active && hover !== null && (
+        <div
+          className="chart-tip"
+          style={{
+            left: `${(cx(hover) / W) * 100}%`,
+            top: `${(y(Math.max(active.multiplier, 1)) / H) * 100}%`,
+            // Flip to the left near the right edge so the tip never leaves the card.
+            transform: cx(hover) > W * 0.72 ? 'translate(-100%, -115%)' : 'translate(-50%, -115%)',
+          }}
+        >
+          <strong>×{active.multiplier.toFixed(2)}</strong>
+          <span>{active.multiplier >= 1 ? 'memory made it dearer' : 'memory made it cheaper'}</span>
+          <span className="muted">{date(active.at)} · quote {shortId(active.quoteId)}</span>
+        </div>
       )}
-      {pts.map((p) => (
-        <circle key={`${p.quoteId}:${p.at}`} cx={x(p.at)} cy={y(p.multiplier)} r={3} fill="var(--cl-ink)">
-          <title>{`×${p.multiplier.toFixed(2)} · ${date(p.at)} · quote ${shortId(p.quoteId)}`}</title>
-        </circle>
-      ))}
-    </svg>
+    </div>
   );
 }
 
 const NAMESPACES: Array<{ id: UnderwriterNamespace; label: string }> = [
-  { id: 'cases', label: 'Cases' }, { id: 'rules', label: 'Rules' }, { id: 'quotes', label: 'Quotes' }, { id: 'policies', label: 'Policies' },
+  { id: 'cases', label: 'Cases' }, { id: 'rules', label: 'Rules' },
+  // Every accept, counter and decline the agent has made, as written to Walrus.
+  { id: 'decisions', label: 'Decisions' },
+  { id: 'quotes', label: 'Quotes' }, { id: 'policies', label: 'Policies' },
 ];
 
 function MemoryTabs() {
@@ -189,11 +245,11 @@ function MemoryTabs() {
   );
 }
 
+const ACTIVITY_TYPES = new Set<AnyEvent['type']>(['memory.queued', 'memory.written', 'memory.failed', 'quote.issued', 'rule.updated', 'policy.paid', 'x402.settled']);
+
 const WRITE_BADGE: Record<MemoryWriteStatus, string> = {
   queued: 'badge badge--muted', writing: 'badge badge--warn', done: 'badge badge--pass', failed: 'badge badge--deny',
 };
-
-const ACTIVITY_TYPES = new Set<AnyEvent['type']>(['memory.queued', 'memory.written', 'memory.failed', 'quote.issued', 'rule.updated', 'policy.paid', 'x402.settled']);
 
 function ActivityLine({ e }: { e: AnyEvent }) {
   switch (e.type) {

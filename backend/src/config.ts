@@ -104,6 +104,8 @@ export const C = {
     rules: 'ghostwriter-rules',
     quotes: 'ghostwriter-quotes',
     policies: 'ghostwriter-policies',
+    // Underwriting verdicts, so the agent's appetite is recalled rather than configured.
+    decisions: 'ghostwriter-decisions',
     history: 'ghostwriter-history',
   },
   PREFIX: {

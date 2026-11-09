@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { runBrief } from '../agent/autobuyer.js';
 import { AppError } from '../errors.js';
 import { makeQuote, getQuote, QuoteInput } from '../pricing/quote.js';
 import { paymentRequired, settlePayment, quoteIdFromHeader, X402_NETWORK } from '../x402/agent.js';
@@ -34,5 +36,17 @@ export async function agentRoutes(app: FastifyInstance) {
       if (quote && quote.status === 'issued') return send402(quote, e.message);
       throw e;
     }
+  });
+
+  /**
+   * Run the demo buying agent from an instruction in plain English.
+   *
+   * The visitor types what they want; the agent turns that into a mandate, is quoted over x402,
+   * checks the premium against its own limit, signs and pays. It spends from its own wallet, never
+   * the visitor's, and the model only ever chooses the mandate numbers — the signing is plain code.
+   */
+  app.post('/v1/agent/run', async (req) => {
+    const { brief } = z.object({ brief: z.string().trim().min(5).max(400) }).parse(req.body);
+    return runBrief(brief);
   });
 }

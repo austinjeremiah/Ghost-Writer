@@ -1,7 +1,8 @@
 #[test_only]
 module ghostwriter::ghostwriter_tests;
 
-use ghostwriter::ghostwriter::{Self, AdminCap, Pool, Policy, Ledger};
+use ghostwriter::ghostwriter::{Self, AdminCap, Pool, Policy, Ledger, GHOSTWRITER};
+use enclave::enclave::{Self as enc, EnclaveConfig, Cap as EnclaveCap, Enclave};
 use sui::clock::{Self, Clock};
 use sui::coin;
 use sui::sui::SUI;
@@ -9,6 +10,8 @@ use sui::test_scenario::{Self as ts, Scenario};
 
 const ADMIN: address = @0xA;
 const BUYER: address = @0xB;
+/// Stands in for a Suilend obligation id the liquidation policy covers.
+const OBLIGATION: address = @0xC0FFEE;
 
 /// Ed25519 public key for the fixed test seed 0x01 * 32 (see SIGS below).
 const QUOTE_PK: vector<u8> = x"8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c";
@@ -29,6 +32,26 @@ const VAULT: u64 = 100_000_000;
 // setup() creates objects in a different order.
 const SIG_Q1: vector<u8> = x"6f65002f5c1454d7e5f8fa197d275fa5c91c79ed4c7fc2c0144b2c462b478fec41bfe7e9c7ff1537adabb4a9fdb15cadf86622319e9889a1df448ebc4af11406";
 const SIG_BIG: vector<u8> = x"4739202be8857c1ebad10d7beafc69278ec16736f8ffcf043fc089f85b7a7e1233a0bfdb1fafbe0b549d6724a7fec517a04ef294f2affab3874cd65b2a767a01";
+const SIG_LIQ: vector<u8> = x"5ac1a30fd53fa801f9827a747be02e3e251187bb743e0c2fa042b2778c311b070d8d0fcd2275a67241d5be6c698a06e0fe54a392fb4169c16f1d5be1e4cd2a0a";
+
+// ---------- liquidation attestation vectors ----------
+// The liquidation path cannot be exercised against a real enclave without an AWS Nitro instance
+// (see docs/P7_ENCLAVE_RUNBOOK.md for why that is blocked). These constants stand in for it, and
+// they are not a mock of the cryptography: `new_enclave_for_testing` holds a public key whose
+// private half we control, so ENCLAVE_SIG is a genuine ed25519 signature over the genuine BCS
+// intent message — byte-for-byte the message the Rust enclave builds, as locked by the Rust test
+// `attestation_bcs_layout_is_stable` and by backend/test/attestation-bcs.test.ts. What is simulated
+// is only where the key came from.
+//
+// Regenerate all of these with: node scripts/gen-liq-test-vectors.mjs
+const ENCLAVE_PK: vector<u8> = x"8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394";
+const ENCLAVE_SIG: vector<u8> = x"396910e2bc99825f25ace32356250c88d9a9dbe911f067462b1ffdcd56ee69f3f3ae82308d46137a43077603e6a8ff0be2c6c2a5bbb2689936f4d5aee5e2ae04";
+/// UTF-8 of the base58 digest "7vgEBffKjhwxo5wHpNWCEc73GF6Pxmj3Kf7GjfWyNU3", as the enclave sends it.
+const LIQ_DIGEST: vector<u8> = x"377667454266664b6a6877786f357748704e57434563373347463650786d6a334b6637476a6657794e5533";
+const REPAY: u64 = 1_234_567;
+const WITHDRAW: u64 = 7_654_321;
+const LIQ_TS: u64 = 500_000; // inside [START, END]
+const PCR_A: vector<u8> = x"111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
 
 // ---------- helpers ----------
 fun setup(): (Scenario, Clock) {
@@ -86,6 +109,8 @@ fun print_quote_bytes() {
     let id = object::id(&pool);
     std::debug::print(&ghostwriter::quote_bytes_for_testing(id, BUYER, 0, FEED, STRIKE, @0x0, PAYOUT, PREMIUM, START, END, b"q1", EXPIRES));
     std::debug::print(&ghostwriter::quote_bytes_for_testing(id, BUYER, 0, FEED, STRIKE, @0x0, VAULT * 2, PREMIUM, START, END, b"big", EXPIRES));
+    // kind 1 = liquidation cover, over a real obligation id.
+    std::debug::print(&ghostwriter::quote_bytes_for_testing(id, BUYER, 1, FEED, STRIKE, OBLIGATION, PAYOUT, PREMIUM, START, END, b"liq", EXPIRES));
     ts::return_shared(pool);
     finish(s, clock);
 }
@@ -269,6 +294,223 @@ fun ledger_rejects_skipped_seq() {
     let mut ledger = s.take_shared<Ledger>();
     ghostwriter::anchor(&cap, &mut ledger, 2, x"2222222222222222222222222222222222222222222222222222222222222222", &clock);
     ts::return_shared(ledger);
+    s.return_to_sender(cap);
+    finish(s, clock);
+}
+
+
+// ---------- liquidation path ----------
+
+/// Buys liquidation cover (kind 1) over OBLIGATION. Separate from `buy_as`, which buys price cover.
+fun buy_liq_as(s: &mut Scenario, clock: &Clock) {
+    s.next_tx(BUYER);
+    let mut pool = s.take_shared<Pool<SUI>>();
+    ghostwriter::buy(
+        &mut pool, 1, FEED, STRIKE, OBLIGATION, PAYOUT, PREMIUM, START, END, b"liq", EXPIRES, SIG_LIQ,
+        coin::mint_for_testing<SUI>(PREMIUM, s.ctx()), clock, s.ctx(),
+    );
+    ts::return_shared(pool);
+}
+
+/// Shares an `EnclaveConfig<GHOSTWRITER>` at version 0, as the package's `init` does, and leaves its
+/// `Cap` with ADMIN.
+fun share_enclave_config(s: &mut Scenario) {
+    s.next_tx(ADMIN);
+    let cap = ghostwriter::enclave_config_for_testing(s.ctx());
+    transfer::public_transfer(cap, ADMIN);
+}
+
+#[test]
+fun settle_liquidation_pays_the_holder_on_a_valid_attestation() {
+    let (mut s, clock) = setup();
+    buy_liq_as(&mut s, &clock);
+    share_enclave_config(&mut s);
+    s.next_tx(ADMIN);
+    {
+        let mut pool = s.take_shared<Pool<SUI>>();
+        let mut policy = s.take_shared<Policy<SUI>>();
+        let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+        let enclave = enc::new_enclave_for_testing<GHOSTWRITER>(ENCLAVE_PK, s.ctx());
+        ghostwriter::settle_liquidation(
+            &mut pool, &mut policy, &enclave, &config,
+            LIQ_DIGEST, REPAY, WITHDRAW, LIQ_TS, ENCLAVE_SIG, s.ctx(),
+        );
+        assert!(ghostwriter::policy_status(&policy) == 1, 0);  // STATUS_PAID
+        assert!(ghostwriter::pool_locked(&pool) == 0, 1);
+        assert!(ghostwriter::pool_free(&pool) == VAULT + PREMIUM - PAYOUT, 2);
+        enc::destroy(enclave);
+        ts::return_shared(config);
+        ts::return_shared(policy);
+        ts::return_shared(pool);
+    };
+    // The payout really left the vault and reached the holder.
+    s.next_tx(BUYER);
+    {
+        let c = s.take_from_sender<coin::Coin<SUI>>();
+        assert!(c.value() == PAYOUT, 3);
+        s.return_to_sender(c);
+    };
+    finish(s, clock);
+}
+
+/// Abort 16 is the failure mode that would otherwise only appear on-chain, with nothing explaining
+/// it. Changing one field of the payload must break verification, or the signature is not binding
+/// the amounts the pool pays out against.
+#[test, expected_failure(abort_code = ghostwriter::EBadAttestation)]
+fun settle_liquidation_rejects_a_tampered_amount() {
+    let (mut s, clock) = setup();
+    buy_liq_as(&mut s, &clock);
+    share_enclave_config(&mut s);
+    s.next_tx(ADMIN);
+    let mut pool = s.take_shared<Pool<SUI>>();
+    let mut policy = s.take_shared<Policy<SUI>>();
+    let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+    let enclave = enc::new_enclave_for_testing<GHOSTWRITER>(ENCLAVE_PK, s.ctx());
+    ghostwriter::settle_liquidation(
+        &mut pool, &mut policy, &enclave, &config,
+        LIQ_DIGEST, REPAY + 1, WITHDRAW, LIQ_TS, ENCLAVE_SIG, s.ctx(),
+    );
+    enc::destroy(enclave);
+    ts::return_shared(config);
+    ts::return_shared(policy);
+    ts::return_shared(pool);
+    finish(s, clock);
+}
+
+/// The digest is the evidence recorded in `PolicyPaid`. A signature over one transaction must not
+/// settle a claim about another.
+#[test, expected_failure(abort_code = ghostwriter::EBadAttestation)]
+fun settle_liquidation_rejects_a_substituted_digest() {
+    let (mut s, clock) = setup();
+    buy_liq_as(&mut s, &clock);
+    share_enclave_config(&mut s);
+    s.next_tx(ADMIN);
+    let mut pool = s.take_shared<Pool<SUI>>();
+    let mut policy = s.take_shared<Policy<SUI>>();
+    let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+    let enclave = enc::new_enclave_for_testing<GHOSTWRITER>(ENCLAVE_PK, s.ctx());
+    ghostwriter::settle_liquidation(
+        &mut pool, &mut policy, &enclave, &config,
+        b"7vgEBffKjhwxo5wHpNWCEc73GF6Pxmj3Kf7GjfWyNU4", REPAY, WITHDRAW, LIQ_TS, ENCLAVE_SIG, s.ctx(),
+    );
+    enc::destroy(enclave);
+    ts::return_shared(config);
+    ts::return_shared(policy);
+    ts::return_shared(pool);
+    finish(s, clock);
+}
+
+/// Abort 18. Rotating the expected PCRs must invalidate enclaves registered against the old ones —
+/// otherwise a retired enclave image keeps its authority forever. This is why the runbook insists
+/// `update_pcrs` runs before `register_enclave`.
+#[test, expected_failure(abort_code = ghostwriter::EStaleEnclave)]
+fun settle_liquidation_rejects_an_enclave_registered_against_old_pcrs() {
+    let (mut s, clock) = setup();
+    buy_liq_as(&mut s, &clock);
+    share_enclave_config(&mut s);
+    s.next_tx(ADMIN);
+    {
+        // The enclave below is created at config_version 0; bumping the config leaves it behind.
+        let cap = s.take_from_sender<EnclaveCap<GHOSTWRITER>>();
+        let mut config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+        enc::update_pcrs(&mut config, &cap, PCR_A, PCR_A, PCR_A);
+        ts::return_shared(config);
+        s.return_to_sender(cap);
+    };
+    s.next_tx(ADMIN);
+    let mut pool = s.take_shared<Pool<SUI>>();
+    let mut policy = s.take_shared<Policy<SUI>>();
+    let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+    let enclave = enc::new_enclave_for_testing<GHOSTWRITER>(ENCLAVE_PK, s.ctx());
+    ghostwriter::settle_liquidation(
+        &mut pool, &mut policy, &enclave, &config,
+        LIQ_DIGEST, REPAY, WITHDRAW, LIQ_TS, ENCLAVE_SIG, s.ctx(),
+    );
+    enc::destroy(enclave);
+    ts::return_shared(config);
+    ts::return_shared(policy);
+    ts::return_shared(pool);
+    finish(s, clock);
+}
+
+/// Abort 9. A liquidation that happened outside the cover window must not pay, even with a perfect
+/// signature — the window check runs before verification.
+#[test, expected_failure(abort_code = ghostwriter::EOutsideWindow)]
+fun settle_liquidation_rejects_a_liquidation_outside_the_window() {
+    let (mut s, clock) = setup();
+    buy_liq_as(&mut s, &clock);
+    share_enclave_config(&mut s);
+    s.next_tx(ADMIN);
+    let mut pool = s.take_shared<Pool<SUI>>();
+    let mut policy = s.take_shared<Policy<SUI>>();
+    let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+    let enclave = enc::new_enclave_for_testing<GHOSTWRITER>(ENCLAVE_PK, s.ctx());
+    ghostwriter::settle_liquidation(
+        &mut pool, &mut policy, &enclave, &config,
+        LIQ_DIGEST, REPAY, WITHDRAW, END + 1, ENCLAVE_SIG, s.ctx(),
+    );
+    enc::destroy(enclave);
+    ts::return_shared(config);
+    ts::return_shared(policy);
+    ts::return_shared(pool);
+    finish(s, clock);
+}
+
+/// The local-demo registration path: `register_enclave_by_cap` puts a key on chain without a Nitro
+/// attestation document, so a demo can run the real liquidation settlement without a paid AWS
+/// instance. This test proves the resulting `Enclave` is accepted by `settle_liquidation` exactly as
+/// an attested one would be — same signature check, same payout, same config_version pinning.
+///
+/// What it does NOT prove, and what the real `register_enclave` is for: that the key lives in a TEE.
+#[test]
+fun settle_liquidation_accepts_an_enclave_registered_by_cap() {
+    let (mut s, clock) = setup();
+    buy_liq_as(&mut s, &clock);
+    share_enclave_config(&mut s);
+    s.next_tx(ADMIN);
+    {
+        let cap = s.take_from_sender<EnclaveCap<GHOSTWRITER>>();
+        let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+        enc::register_enclave_by_cap(&config, &cap, ENCLAVE_PK, s.ctx());
+        ts::return_shared(config);
+        s.return_to_sender(cap);
+    };
+    s.next_tx(ADMIN);
+    {
+        let mut pool = s.take_shared<Pool<SUI>>();
+        let mut policy = s.take_shared<Policy<SUI>>();
+        let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+        let enclave = s.take_shared<Enclave<GHOSTWRITER>>();
+        ghostwriter::settle_liquidation(
+            &mut pool, &mut policy, &enclave, &config,
+            LIQ_DIGEST, REPAY, WITHDRAW, LIQ_TS, ENCLAVE_SIG, s.ctx(),
+        );
+        assert!(ghostwriter::policy_status(&policy) == 1, 0);
+        ts::return_shared(enclave);
+        ts::return_shared(config);
+        ts::return_shared(policy);
+        ts::return_shared(pool);
+    };
+    s.next_tx(BUYER);
+    {
+        let c = s.take_from_sender<coin::Coin<SUI>>();
+        assert!(c.value() == PAYOUT, 1);
+        s.return_to_sender(c);
+    };
+    finish(s, clock);
+}
+
+/// A key of the wrong length must be refused outright, since `verify_signature` would otherwise
+/// just always return false and the failure would look like a bad signature.
+#[test, expected_failure(abort_code = enclave::enclave::EInvalidPk)]
+fun register_enclave_by_cap_rejects_a_short_key() {
+    let (mut s, clock) = setup();
+    share_enclave_config(&mut s);
+    s.next_tx(ADMIN);
+    let cap = s.take_from_sender<EnclaveCap<GHOSTWRITER>>();
+    let config = s.take_shared<EnclaveConfig<GHOSTWRITER>>();
+    enc::register_enclave_by_cap(&config, &cap, x"0011", s.ctx());
+    ts::return_shared(config);
     s.return_to_sender(cap);
     finish(s, clock);
 }
