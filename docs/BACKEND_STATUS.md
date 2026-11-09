@@ -3,106 +3,95 @@
 What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are the ones in
 [GHOSTWRITER_BACKEND.md](GHOSTWRITER_BACKEND.md). Updated with every backend commit.
 
-**Last updated:** 7 Nov 2026 · **Plan:** get everything working end-to-end on Sui Testnet, then Mainnet.
+**Last updated:** 9 Nov 2026 · **Deadline:** 10 Nov 2026, 17:00 UTC
 
 ## At a glance
 
 | Phase | What | Status |
 |---|---|---|
-| P0 | Accounts, keys, tools | 🟡 mostly done (see blockers) |
+| P0 | Accounts, keys, tools | ✅ done |
 | P1 | Move contract on Testnet | ✅ done |
 | P2 | Server skeleton (config, SQLite, SSE, health) | ✅ done |
 | P3 | Chain layer (Tatum gRPC, prices, tx builders), create + fund pool | ✅ done |
-| P4 | Walrus Memory layer (queue, borrower records, onboarding) | 🔵 next |
-| P5 | Pricing, quotes, policy confirm, config/market/proof endpoints | ⏳ pending |
-| P6 | Watchers: price trigger, expiry, warnings, checkpoint pulse | ⏳ pending |
-| P7 | Nautilus enclave on AWS, Suilend reads, liquidation watcher | ⏳ pending (needs AWS) |
-| P8 | Learning loop, underwriter book, backtest seeding (≥10 Mainnet memories) | ⏳ pending |
-| P9 | x402 agent payments + final server | ⏳ pending |
-| P10 | DeepBook Predict hedge (optional, off by default) | ⏸ skipped for now |
-| P11 | Deploy, blog, submission | ⏳ pending |
+| P4 | Walrus Memory layer (queue, borrower records, onboarding) | ✅ done |
+| P5 | Pricing, quotes, policy confirm, config/market/proof endpoints | ✅ done |
+| P6 | Watchers: price trigger, expiry, warnings, checkpoint pulse | ✅ done |
+| P7 | Nautilus enclave, Suilend reads, liquidation watcher | 🟡 code done, **needs AWS to run** |
+| P8 | Learning loop, underwriter book, backtest seeding | ✅ done — **47 memories on Mainnet** |
+| P9 | x402 agent payments | ✅ done — real purchase settled |
+| P10 | DeepBook Predict hedge | ⏸ dropped (needs DUSDC; we use gUSD) |
+| P11 | Blog, submission, X post | ⏳ yours |
 
-## Done
+## Proven end to end, on real networks
 
-### P0: accounts and credentials
-- Tatum API keys (Mainnet and Testnet). The data API works (SUI daily candles).
-- Vultr inference key (used instead of OpenAI). Chat works with the configured model.
-- Walrus Memory underwriter account on **Mainnet**: `0x8b7608b6c7911acb97353a6010280bfb687ce4396127e7d9b5c18c72c39f89ab`.
-  The delegate key in `.env` is registered on it (checked on-chain).
-- Server wallet on Testnet: `0xdd6389cc38a64526d84e6189ef8904cf8e83f4721b08f65fe96b8579b46e6f2b`.
+| Thing | Evidence |
+|---|---|
+| Walrus Memory writes on **Mainnet** | 47 memories on account `0x8b7608b6…f89ab`. `GET /v1/proof` → `mainnetMemories: 47` (45 backtest cases, 1 policy, 1 write-path check) |
+| Live price from **on-chain Pyth** via Tatum | `GET /v1/market` → SUI $0.81, 53 s old, 30-day vol 72.8% |
+| Memory changes the price, **both ways** | 7.5% below spot → ×0.96 (model slightly over-prices); 13.7% below → ×1.63 (model under-prices deep barriers). Each quote cites the blob id that moved it |
+| Signed quote → Move `buy` | Quote Ed25519-signed by the backend, verified on-chain; byte-for-byte BCS test in `pnpm test` |
+| Price payout, fully automatic | `pnpm e2e:price`: buy → report_breach → 2 min → confirm_breach → 5 gUSD paid |
+| **x402 agent purchase** | `pnpm agent`: 402 → signed buy tx in `PAYMENT-SIGNATURE` → policy `0xab6a92da…32d6`, digest `7vgEBffKjhwxo5wHpNWCEc73GF6Pxmj3Kf7GjfWyNU3` |
+| Tatum gRPC **streaming** | `checkpointPulse: stream` — real Testnet checkpoint sequence numbers over SSE |
+| Tests | 17 node tests + 18 Move tests, all pass; `pnpm typecheck` clean |
 
-### P1: contracts on Sui Testnet
-All IDs are in [backend/move/DEPLOYMENTS.md](../backend/move/DEPLOYMENTS.md).
-- `ghostwriter` package: `0xff272f596619f255a591323d32d7d0a3835fbdaf84718bdb61f7dec263e23060`
-- Nautilus `enclave` package, vendored in `backend/move/enclave`: `0xc9c14c07…521802`
-- `gusd` test dollar with a public faucet: `0x6dc2c1e1…::gusd::GUSD`
-- Tests: 17 for `ghostwriter` (signed-quote buys and every rejection path, expiry, withdraw
-  limits, ledger sequencing) and 3 for `gusd`. All pass.
+## What runs where
 
-### P2: server skeleton
-- Fastify server: config validation (bad or missing env exits and prints names only, never values),
-  log redaction, error format, SQLite schema (`node:sqlite`), event bus.
-- `GET /v1/health` and `GET /v1/events` (SSE with replay from `Last-Event-ID`, ping every 15 s).
-- `pnpm keys` writes the admin token, quote key, record key and borrower delegate key straight into
-  `.env`, prints only public keys, and never overwrites existing keys.
-  Quote public key (goes into the pool): `62a55ba3994c5d6df8e6aceda8e313c587e6e20627cbfffde50231bba73f6a16`.
-- Checked: typecheck clean, health OK, SSE pings and survives disconnects, malformed JSON gives 400.
-- Run it: `cd backend && pnpm install && pnpm dev`.
+- **Sui Mainnet** — Walrus Memory (underwriter + borrower accounts), Suilend reads. Via Tatum gRPC.
+- **Sui Testnet** — our Move package, Pool, policies, payouts, x402 settlement. Via Tatum gRPC.
+- **Money** — gUSD, our own test dollar with a public faucet (DUSDC's request form is closed).
 
-### P3: chain layer, pool
-- Tatum native gRPC clients for Mainnet and Testnet (one key and one rate limit each), retries on
-  transient errors, serialized server transactions.
-- Prices read from Pyth's on-chain `PriceInfoObject` on Testnet (looked up through Pyth's state table),
-  with a freshness check against the pool's max price age.
-- Readers for Pool, Policy and Ledger objects. Tx builders for report/reset/confirm breach, expire,
-  liquidation settlement, ledger create and anchor, pause.
-- Quote message encoding in TypeScript, checked byte-for-byte against the Move contract (`pnpm test`).
-- **Pool created and funded:** `0x76e3792eeb08a19ad7cb1a72e53472c1f3194726be0aeb8b0ed5ede587051d74`,
-  2,000 gUSD, confirm delay 120 s, max price age 180 s. `pnpm pool:create` writes the ID into `.env`;
-  `pnpm pool:fund <n>` mints gUSD from the faucet and deposits it in one tx.
-- `pnpm smoke` passes: Tatum gRPC (both networks), Tatum OHLCV, on-chain SUI price, Walrus Memory
-  (health and a signed call with the delegate key), Vultr.
-- **Live end-to-end check (`pnpm e2e:price`):** sign quote → buy → report breach → wait 2 min →
-  confirm breach → 5 gUSD paid to the holder, all on Testnet with the real on-chain SUI price.
+## Endpoints live
 
-### Frontend
-All 9 pages are built against the API contract (ICD §5). They show "backend not reachable" until
-the server is running.
-
-## In progress
-
-Nothing. Next: **P4**, the Walrus Memory layer.
+`/v1/health` `/v1/config` `/v1/market` `/v1/proof` `/v1/events` (SSE) ·
+`PUT|GET /v1/borrowers/:address` `/history` `/positions` ·
+`POST /v1/quotes` `GET /v1/quotes/:id` ·
+`POST /v1/policies/confirm` `GET /v1/policies` `GET /v1/policies/:id` `POST /v1/policies/:id/claim-liquidation` ·
+`GET /v1/underwriter/book` `/v1/underwriter/memory` `/v1/memory/writes` `/v1/enclave/health` ·
+`POST /v1/agent/cover` (x402) · `POST /v1/admin/pause` `/v1/admin/restore`
 
 ## Pending
 
-- **P4:** Walrus Memory write queue, borrower hash-chained records, onboarding endpoint.
-- **P5:** volatility from Tatum candles, quote pricing and signing, memory citations, Vultr explanation.
-  Note: the qwen model returned empty text with a 20-token limit (it likely spends tokens on hidden
-  reasoning); turn thinking off or raise the limit for explanations.
-- **P6:** watchers that report, confirm and reset breaches, expire policies and send warnings.
-- **P7:** Nautilus enclave on AWS Nitro and the liquidation watcher.
-- **P8:** learning rules from outcomes and seeding at least 10 backtest memories on Mainnet.
-- **P9:** x402 agent purchase endpoint and agent script.
-- **Frontend follow-up:** show gUSD instead of DUSDC, add a "Get test gUSD" faucet button,
-  and hide BTC while it has no live testnet price.
-
-## Blockers and things needed
-
-| # | Need | Who | Blocks |
-|---|---|---|---|
-| 1 | **AWS account** with Nitro Enclaves (us-east-1) | you | P7 liquidation cover only |
+1. **P7 needs AWS** (the only external blocker). All the code is written: `enclave/mod.rs`,
+   `enclave/allowed_endpoints.yaml`, `src/enclave/client.ts`, `src/workers/liquidationWatcher.ts`,
+   and the claim route. Without `ENCLAVE_URL` the liquidation path reports "enclave not configured"
+   and everything else is unaffected. **The Rust has not been compiled** — it needs the Nautilus
+   clone to build against.
+2. **Borrower onboarding needs a browser** once: a second MemWalAccount owned by your own wallet,
+   with our borrower delegate key added. The frontend onboarding page does this; the key to paste is
+   in `GET /v1/config` → `memwal.borrowerDelegatePublicKeyHex`.
+3. **P11** — blog, X/LinkedIn, submission form, repo public.
+4. Frontend follow-ups (owner: frontend dev): show gUSD not DUSDC, add a "get test gUSD" button,
+   hide BTC, surface `obligationVerified` and `explanationSource`.
 
 ## Decisions and changes from the build doc
 
 | Change | Why |
 |---|---|
-| **gUSD** (our own test dollar) instead of DeepBook's DUSDC | The DUSDC request form is closed. `Pool<C>` accepts any coin. |
-| **Prices read from the on-chain Pyth object on Testnet**, no Hermes API calls | The Pyth free plan has no API access. Pyth's SUI/USD object on Sui Testnet is pushed every ~126 s by others, and the contract only reads it. |
-| **Pool max price age 180 s** (doc: 60 s) | It must be above the ~126 s update gap, or payout checks fail as "stale". |
-| **SUI only on Testnet; BTC off** | The on-chain BTC/USD object was last updated 26 days ago. Re-enable it with a paid Pyth plan or a live feed. |
-| **Vultr inference** instead of OpenAI | Your choice. OpenAI-compatible API, same `openai` client with a different base URL. |
-| **Node 26 LTS** (installed with winget; the doc says 24) | Node 26 is the current LTS. It meets the backend's `>=24` and the Walrus Memory SDK's `>=20`. |
-| **`node:sqlite`** instead of `better-sqlite3` | `better-sqlite3` needs Visual Studio C++ build tools on Windows. |
-| **Two Tatum keys** (`TATUM_API_KEY_MAINNET`, `TATUM_API_KEY_TESTNET`) | Your setup. |
-| **Move manifests use the new Sui package manager** | Sui CLI 1.73 cannot build old-style manifests against Nautilus. |
-| **Walrus Console not used** | It is file storage, not Walrus Memory. Its keys were removed from `.env`. |
+| **gUSD** instead of DeepBook's DUSDC | The DUSDC request form is closed. `Pool<C>` is generic over the coin. This also kills P10, whose hedge needs DUSDC. |
+| **On-chain Pyth object, no Hermes** | The Pyth free plan has no API access. Others push SUI/USD to Testnet every ~126 s and the contract only reads the object. |
+| **Pool max price age 180 s** (doc: 60 s) | Must exceed the ~126 s push gap or every settlement aborts as stale. |
+| **SUI only; BTC off** | The Testnet BTC/USD object is weeks stale. `ENABLED_ASSETS=SUI`. |
+| **Vultr inference** instead of OpenAI, with `reasoning_effort: 'none'` | Your key. The model is a reasoning model: by default it spent the whole token budget thinking and returned `finish_reason: length` with empty text. Confirmed fix against the endpoint. |
+| **Liquidation discovery polls obligations**, not events | Tatum's plan answers "gRPC method not allowed" for `ListEvents`/`SubscribeEvents`. Instead the watcher reads each covered obligation's `previousTransaction`; any change is a candidate and **the enclave decides** whether it was a liquidation. A refusal doubles as evidence the borrower reacted to a warning. The event-stream path is still in the code and activates automatically on a plan that allows it. |
+| **Backtest uses intraday lows**, not closes | Tatum's OHLCV returns `high`/`low`. A barrier is touched intraday, so closes undercount hits. This makes the hit rates true barrier touches and removes a systematic downward bias in the case factor. |
+| **Exact bucket match required for base rates** | Semantic recall put "distance=0-5 duration=8-30d" within 0.14 of "distance=5-10 duration=4-7d" — bucket hit rates differ wildly (92% vs 45%), and the first mispriced a 10 gUSD payout at 9.44. Recall now finds candidates; the JSON inside the memory decides the match. Live payouts still count from neighbouring buckets. |
+| **`confirm_breach` checks the window end** | Added `now <= end_ms + confirm_delay_ms`. Without it, a holder could report a breach, never reset it, and confirm on any later dip — the contract was relying on our watcher for soundness. |
+| **Obligation ownership checked at quote time** | Liquidation cover is refused unless the buyer holds the obligation; while `SUILEND_OBLIGATION_CAP_TYPE` is unset the quote reports `obligationVerified: null` rather than claiming it checked. |
+| **`moneyBucket` rounds before comparing** | `1 - 0.9/1` is `0.09999999999999998`, so a trigger exactly 10% below spot keyed to the wrong bucket — and the bucket is the memory key. |
+| **Node 26 / `node:sqlite`** | Node 26 is current LTS; `node:sqlite` avoids needing VS C++ build tools on Windows. |
+| **Two Tatum keys** | One per network, each with its own rate bucket. |
+
+## Run it
+
+```bash
+cd backend && pnpm install
+pnpm keys          # one-time: writes admin token + signing keys into .env
+pnpm smoke         # checks every upstream
+pnpm warm:ohlcv    # one-time: fills the daily candle cache
+pnpm dev           # http://localhost:8787
+```
+
+Demo scripts: `pnpm e2e:price` (price payout), `pnpm agent` (x402 purchase),
+`pnpm seed --dry` (backtest table), `pnpm mem:ping` (Mainnet write path),
+`pnpm peek:suilend <digest>` (Suilend shapes).

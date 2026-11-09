@@ -18,7 +18,9 @@
     "peek:suilend": "tsx scripts/peek-suilend.ts",
     "warm:ohlcv": "tsx scripts/warm-ohlcv.ts",
     "agent": "tsx scripts/agent-buyer.ts",
-    "e2e:price": "tsx scripts/e2e-price-path.ts"
+    "e2e:price": "tsx scripts/e2e-price-path.ts",
+    "mem:ping": "tsx scripts/memory-ping.ts",
+    "onboard:borrower": "tsx scripts/onboard-borrower.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
