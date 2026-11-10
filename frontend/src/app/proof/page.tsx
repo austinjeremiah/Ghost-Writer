@@ -50,7 +50,7 @@ export default function ProofPage() {
     ['Contract package (Testnet)', p && cfg ? <Address id={p.packageId} full href={link.testnetObject(cfg, p.packageId)} /> : <Dash />],
     ['Vault pool (Testnet)', p && cfg ? <Address id={p.poolId} full href={link.testnetObject(cfg, p.poolId)} /> : <Dash />],
     ['Nautilus enclave object', p && cfg ? <Address id={p.enclaveObjectId} full href={link.testnetObject(cfg, p.enclaveObjectId)} /> : <Dash />],
-    ['Quote signing key', cfg ? <Key value={cfg.pool.quotePubkeyHex} /> : <Dash />],
+    ['Quote signing key', cfg?.pool ? <Key value={cfg.pool.quotePubkeyHex} /> : <Dash />],
     ['Record signing key', cfg ? <Key value={cfg.recordPubkeyHex} /> : <Dash />],
     ['Backend workers', health.data
       ? <span className="row">{(Object.keys(WORKER_LABELS) as Array<keyof Health['workers']>).map((k) => (

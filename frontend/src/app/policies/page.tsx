@@ -103,7 +103,7 @@ function PolicyTable({ policies }: { policies: PolicyDTO[] }) {
                 <td>
                   <div className="stack-sm" style={{ gap: 4 }}>
                     <StatusBadge status={p.status} />
-                    {p.status === 'breach' && cfg && (
+                    {p.status === 'breach' && cfg?.pool && (
                       <span className="small warn">Payout in <Countdown to={p.breachStartedMs + cfg.pool.confirmDelayMs} /> if it stays below</span>
                     )}
                   </div>

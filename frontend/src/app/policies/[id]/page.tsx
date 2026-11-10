@@ -100,7 +100,7 @@ function Detail({ p, cfg }: { p: PolicyDTO; cfg: Config | undefined }) {
               </span>}
               <span className="small muted">Trigger {usd(strike)}</span>
             </section>
-            {p.status === 'breach' && cfg && <BreachTimer p={p} cfg={cfg} strike={strike} />}
+            {p.status === 'breach' && cfg?.pool && <BreachTimer p={p} confirmDelayMs={cfg.pool.confirmDelayMs} strike={strike} />}
           </div>
         </div>
       )}
@@ -148,8 +148,8 @@ function Detail({ p, cfg }: { p: PolicyDTO; cfg: Config | undefined }) {
   );
 }
 
-function BreachTimer({ p, cfg, strike }: { p: PolicyDTO; cfg: Config; strike: number }) {
-  const deadline = p.breachStartedMs + cfg.pool.confirmDelayMs;
+function BreachTimer({ p, confirmDelayMs, strike }: { p: PolicyDTO; confirmDelayMs: number; strike: number }) {
+  const deadline = p.breachStartedMs + confirmDelayMs;
   const [over, setOver] = useState(() => Date.now() >= deadline);
   useEffect(() => { setOver(Date.now() >= deadline); }, [deadline]);
   return (

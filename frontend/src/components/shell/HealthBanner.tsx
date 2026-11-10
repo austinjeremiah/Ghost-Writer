@@ -10,7 +10,8 @@ export function HealthBanner() {
 
   const rows: Array<{ key: string; Icon: typeof Ban; text: string; warn?: boolean }> = [];
   if (health.isError) rows.push({ key: 'down', Icon: Unplug, text: `Ghostwriter backend is not reachable at ${API_URL}.` });
-  if (cfg?.pool.paused) rows.push({ key: 'paused', Icon: Ban, text: 'New cover is paused.', warn: true });
+  if (cfg && !cfg.pool) rows.push({ key: 'pool', Icon: TriangleExclamationPoint, text: "Can't read the pool on Sui right now. Buying and payouts are paused until chain data is back.", warn: true });
+  if (cfg?.pool?.paused) rows.push({ key: 'paused', Icon: Ban, text: 'New cover is paused.', warn: true });
   if (health.data?.workers.priceWatcher === 'stopped') {
     rows.push({ key: 'price', Icon: TriangleExclamationPoint, text: 'Price watching is stopped. Payouts are delayed.', warn: true });
   }
