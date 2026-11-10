@@ -59,7 +59,7 @@ function GlobalToasts() {
         if (!mine.has(e.data.policyId)) return;
         toast({
           icon: Timer,
-          text: `Price is below your trigger. Payout in ${cfg ? timeLeft(cfg.pool.confirmDelayMs) : 'a few minutes'} if it stays there.`,
+          text: `Price is below your trigger. Payout in ${cfg?.pool ? timeLeft(cfg.pool.confirmDelayMs) : 'a few minutes'} if it stays there.`,
           action: { label: 'Watch', href: `/policies/${e.data.policyId}` },
         });
         break;

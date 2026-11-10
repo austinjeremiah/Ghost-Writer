@@ -149,7 +149,7 @@ function Detail({ p, cfg }: { p: PolicyDTO; cfg: Config | undefined }) {
 }
 
 function BreachTimer({ p, cfg, strike }: { p: PolicyDTO; cfg: Config; strike: number }) {
-  const deadline = p.breachStartedMs + cfg.pool.confirmDelayMs;
+  const deadline = p.breachStartedMs + (cfg.pool?.confirmDelayMs ?? 120_000);
   const [over, setOver] = useState(() => Date.now() >= deadline);
   useEffect(() => { setOver(Date.now() >= deadline); }, [deadline]);
   return (

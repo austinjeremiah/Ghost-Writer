@@ -196,7 +196,7 @@ function MultiplierSvg({ history }: { history: Book['multiplierHistory'] }) {
         >
           <strong>×{active.multiplier.toFixed(2)}</strong>
           <span>{active.multiplier >= 1 ? 'memory made it dearer' : 'memory made it cheaper'}</span>
-          <span className="muted">{date(active.at)} · quote {shortId(active.quoteId)}</span>
+          <span className="chart-tip__meta">{date(active.at)} · quote {shortId(active.quoteId)}</span>
         </div>
       )}
     </div>
