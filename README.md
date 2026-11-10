@@ -1,112 +1,330 @@
 # Ghostwriter
 
-**AI-underwritten liquidation protection for Sui borrowers, priced by an underwriter whose memory lives on Walrus Memory.**
+Price-drop cover for Sui borrowers, priced by an AI underwriter whose memory lives on
+Walrus Memory.
 
-Built for **Total Recall — Tatum × Walrus Memory**. Track 03 Consumer Finance Apps, plus Best Walrus Memory and Best Use of Agent Payments.
+Built for **Total Recall — Tatum × Walrus Memory**.
 
 ---
 
 ## What it does
 
-A Sui borrower asks for cover: *"if SUI stays below $0.75 for the next 7 days, pay me 10."* Ghostwriter prices it from real volatility, then **adjusts that price using what it remembers** — back-tested base rates, rules it learned from its own past losses, and the borrower's own portable history. The quote cites the exact Walrus blob that changed the price.
+You're borrowing on Sui and you don't want to get wiped out by a drawdown. You ask for
+cover: *pay me 10 gUSD if SUI drops below $0.80 in the next 7 days.* You get a price,
+you pay it, you're covered.
 
-Payouts are automatic. A price trigger settles through a two-step Pyth check on-chain; a Suilend liquidation settles through a **Nautilus TEE attestation**. No claim form, no human.
+There is no claim form. There isn't one anywhere in the app. When the on-chain Pyth
+price crosses your trigger, a watcher reports it; after a 120-second confirm delay the
+Move contract **re-reads the Pyth price itself** and either pays you or resets the
+timer. The money comes from a pool on Sui Testnet and lands in your wallet.
 
-An AI agent can buy cover over **x402** — and the payment payload *is* the signed purchase transaction, so paying and getting insured are one atomic on-chain step.
+That part is a parametric escrow, and on its own it isn't very interesting. The
+interesting part is who sets the price.
 
-## Why memory is load-bearing
+## The underwriter
 
-Remove Walrus Memory and the product loses both its learning and its portability:
+Every quote starts from a volatility model, and then gets corrected by what the
+underwriter remembers. It recalls comparable historical cases from Walrus and tells you
+which blob changed the number.
 
-- **Pricing depends on it.** Case recall and rule recall set the premium multiplier. Live numbers from this build: a barrier 7.5% below spot prices at **×0.96** (400 days of history say our model slightly over-prices it), while a barrier 13.7% below prices at **×1.63** (the Gaussian model badly under-prices deep barriers, and memory corrects it). Every quote names the blob id responsible.
-- **The borrower owns their history.** Each borrower's records live in *their own* MemWalAccount, written by a delegate key they added and can revoke. Records are Ed25519-signed by Ghostwriter and hash-chained, and the latest `(seq, head)` is anchored on-chain. A borrower can't forge a clean history (no key) or hide a bad record (the chain breaks or the anchor mismatches) — and any other underwriter they authorise can verify it the same way. That makes a no-claims bonus that travels.
+**It corrects in both directions.** Same cover, two different triggers:
 
-**47 memories on Sui Mainnet** as of submission: 45 back-tested case aggregates plus live policy outcomes.
+| Trigger | Premium | Memory multiplier | What it recalled |
+|---|---|---|---|
+| $0.80 | 6.85 gUSD | **×0.90** | 5–10% below spot over 4–7 days: price touched 81 times out of 180 |
+| $0.70 | 1.69 gUSD | **×2.07** | 15–25% below spot: touched only 11.5% of the time |
+
+The model over-prices shallow barriers and under-prices deep ones. Memory knows that and
+fixes it, cheaper in one direction and dearer in the other. Both quotes cite the blob
+they used, and you can open them.
+
+**It refuses business on size.** Ask for 900 gUSD of cover and it declines — a single
+policy is capped at 25% of free capital — then counter-offers 495.36 gUSD, which you can
+accept with one click. The capital limits live in `guard()` in
+[`decide.ts`](backend/src/underwriting/decide.ts) and in the Move contract, not in a
+prompt. The model exercises judgement *inside* a mandate it cannot cross.
+
+```
+MAX_SINGLE_SHARE    = 0.25   // one policy against free capital
+MAX_BUCKET_SHARE    = 0.40   // one risk bucket against free capital
+STRESSED_LOSS_RATIO = 1.5    // refuse if the stressed book breaches this
+```
+
+**It refuses business on risk, because of a rule it wrote itself.** Ask for a trigger at
+$0.83, roughly 2% below spot, and it won't write it at any price: *"cover is too likely
+to pay out at this trigger."*
+
+It knows that because it got it wrong once. It sold a policy for 9.73 gUSD, paid out 10,
+and lost 2.7. Then it measured its own P&L and wrote this to Walrus:
+
+```json
+{
+  "ruleId": "SUI:mid:0-5",
+  "multiplier": 1.25,
+  "status": "trial",
+  "lesson": "SUI, mid vol, 0-5% below spot: The premium of 9.73M was insufficient
+             to cover the 10M payout, resulting in a net loss of 2.7M.",
+  "payouts": 1,
+  "blobId": "2OqnhNTJ09bHlATw134i0Vb_Uds1Hn2JlA6zXZng9vM"
+}
+```
+
+Nothing in the codebase told it to write that rule, and the rule is now the reason it
+turns that business away. The loop closed by itself.
+
+**It only answers from memory.** `/underwriter` has a chat box.
+[`ask.ts`](backend/src/underwriting/ask.ts) recalls across cases, rules, decisions,
+policies and the borrower's own history, and the system prompt forbids outside knowledge
+and requires blob-ID citations. Ask it why it refused your 900 and it explains itself
+with receipts. Ask it the capital of France and it says *"I have no memory of that."* A
+chatbot would say Paris; this one structurally can't.
+
+## An agent is a customer
+
+Go to `/agents` and type a sentence:
+
+> Cover my SUI if it drops 15% over 3 days, don't pay more than 4 gUSD.
+
+[`autobuyer.ts`](backend/src/agent/autobuyer.ts) splits this in two on purpose. The LLM
+only parses the brief into mandate numbers — it never touches the transaction.
+`runMandate()` is ordinary code that does the signing. Seven narrated steps follow:
+parse, request a quote (HTTP **402 Payment Required**), read the memories behind the
+price, check the premium against the budget, sign, pay, covered.
+
+It pays from its own wallet, not yours — deliberately a third party, separate from both
+the human buyer and the underwriter. In the x402 "exact" scheme on Sui the payment
+payload *is* the signed purchase transaction, so paying and being covered cannot come
+apart.
+
+## How Walrus Memory is used
+
+Memory isn't a log here, it's the pricing input. Remove it and the product loses both its
+judgement and its portability.
+
+**105 records on Sui Mainnet**, five namespaces, zero failed writes:
+
+| Namespace | Records | What's in it |
+|---|---|---|
+| `ghostwriter-cases` | 46 | backtested base rates — how often SUI actually fell this far, this fast |
+| `ghostwriter-decisions` | 48 | every accept, counter and decline, with reasoning |
+| `ghostwriter-policies` | 9 | each policy written and how it ended |
+| `ghostwriter-rules` | 1 | pricing rules the underwriter wrote for itself |
+| `ghostwriter-quotes` | 1 | quote audit trail |
+
+**The borrower owns their history.** Each borrower's records live in *their own*
+`MemWalAccount`, created by them on memory.walrus.xyz, written by a delegate key they
+granted and can revoke whenever they like. Records are Ed25519-signed by Ghostwriter and
+hash-chained — each one points at the one before — and the latest `(seq, head)` is
+anchored on Sui.
+
+So a borrower can't forge a clean record (no signing key) and can't quietly delete a bad
+one (the chain breaks, or the anchor stops matching). And any other underwriter they
+authorise can verify the whole thing the same way. That's a no-claims bonus that travels
+between insurers, which is not a thing that exists today.
+
+## How Tatum is used
+
+Every chain read and write goes through Tatum's Sui gRPC gateways, on both networks:
+
+- **Testnet** — pool state, policy objects, the on-chain Pyth `PriceInfoObject`, buy and
+  settle transactions.
+- **Mainnet** — the Walrus Memory account and its delegate keys.
+
+The client is [`clients.ts`](backend/src/chain/clients.ts), one rate-limited channel per
+network with the key in gRPC metadata. Worth knowing if you're building on this: Tatum
+serves Sui over **gRPC only** — there's no Sui JSON-RPC endpoint, and asking for one
+gets you a 404.
+
+Two networks is the honest shape, not a shortcut: the hosted Walrus relayer is
+Mainnet-only, and we weren't going to spend real money on demo policies.
+
+## Proof it actually ran
+
+One policy settled end to end with nobody touching it:
+
+| | |
+|---|---|
+| Policy | `0x151cecc344ee80cdee61d050043ff7f481f718c630832c87660fa201ae02b779` |
+| Premium | 9.730769 gUSD |
+| Payout | 10 gUSD |
+| Bought | 19:21 |
+| Trigger crossed | 19:29 |
+| **Paid** | **19:31** |
+| Digest | `9MXG2zpaV1ZjdNH8jC4j5deWF8QEHRDG1KfPukrfvm9t` |
+
+Pool as it stands: 2,016.69 gUSD in the vault, 1,966.69 free, 50 locked against open
+policies, 31.69 collected in premiums, 15 paid out, loss ratio 0.473. Seven active
+policies, one paid.
+
+The 2.7 gUSD lost on that policy is the loss that taught it rule `SUI:mid:0-5`.
+
+`/proof` in the app lists every one of these IDs live, along with the blob IDs and
+signing keys, so nothing here has to be taken on trust.
+
+## What isn't shipped
+
+The repo contains a Nautilus enclave and a `settle_liquidation` path in the Move package,
+for cover against Suilend liquidations. **This is not a working feature and we don't
+claim it.**
+
+The attestation service reads Mainnet and refuses to sign claims the transaction doesn't
+support, and the Move side is covered by tests — but it runs as a plain binary outside
+AWS Nitro, so it cannot produce a hardware attestation. `ENCLAVE_OBJECT_ID` is
+deliberately empty and on-chain liquidation settlement is disabled. Price-drop cover is
+the product; liquidation cover is unfinished work left in the tree.
 
 ## Architecture
 
 ```
-          ┌───────────────────────── Sui MAINNET ──────────────────────────┐
-          │  Walrus Memory: underwriter account + one account per borrower │
-          │  Suilend: obligations, liquidations                            │
-          └────────▲──────────────────────▲────────────────────▲───────────┘
-                   │ memwal SDK           │ Tatum gRPC         │ Tatum JSON-RPC
-                   │ (hosted relayer)     │ (reads)            │ (inside the TEE)
- ┌──────────┐ HTTP │                      │           ┌────────┴─────────┐
- │ Frontend ├──────┤  BACKEND (Node, Fastify, SQLite) │ Nautilus enclave │
- │ (wallet) │◄─SSE─┤  pricing · memory queue · x402   │ AWS Nitro        │
- └────┬─────┘      └──────┬───────────────────▲───────┴────────▲─────────┘
-      │ signs buy tx      │ Tatum gRPC        │ attestation    │
-      ▼                   ▼ (reads + txs)     │                │
- ┌──────────────────── Sui TESTNET ───────────┴────────────────┴──┐
- │  ghostwriter::ghostwriter — Pool<GUSD>, Policy, Ledger,        │
- │  Enclave<GHOSTWRITER>        ·  Pyth PriceInfoObject (read)    │
- └────────────────────────────────────────────────────────────────┘
- AI agent ── x402 v2: HTTP 402 → signed buy tx in PAYMENT-SIGNATURE ──► backend executes
+                         Sui MAINNET
+            Walrus Memory: underwriter account
+                  + one account per borrower
+                            ▲
+                            │ memwal SDK (hosted relayer)
+                            │ Tatum gRPC (account reads)
+                            │
+ ┌───────────┐   REST/SSE   ├──────────────────────────┐
+ │ Frontend  │◄────────────►│ Backend                  │
+ │ Next.js   │              │ Node 24 · Fastify · SQLite│
+ │ dapp-kit  │              │                          │
+ └─────┬─────┘              │ pricing · underwriting   │
+       │                    │ memory queue · x402      │
+       │ signs buy tx       │ price + policy workers   │
+       │                    └────────────┬─────────────┘
+       │                                 │ Tatum gRPC
+       ▼                                 ▼
+                         Sui TESTNET
+         Pool · Policy · Ledger · gUSD · Pyth price object
 ```
 
-Memory is on **Mainnet** (that's the real asset). Money is on **Testnet** on purpose: economically this is an insurance product, so it runs as a demo with test dollars.
-
-## How the sponsors' tech is used
-
-**Walrus Memory** — two account kinds on Mainnet, five namespaces, a paced and retried write queue, vector recall that drives pricing, and `restore` for re-indexing. Walrus is canonical: wipe the local database and rules are rebuilt from memory on boot.
-
-**Tatum** — every chain read and every server transaction on *both* networks goes through Tatum's Sui gRPC gateways (native gRPC, `x-api-key` metadata), rate-limited per key. Also: the Testnet checkpoint **stream** for a live heartbeat, the Data API for daily OHLCV candles, and Tatum JSON-RPC *inside* the enclave so the TEE reads the chain itself.
-
-**Pyth** — the price trigger reads the on-chain `PriceInfoObject` with a confidence bound and a staleness bound, and a breach must persist across two transactions before it pays.
-
-**Nautilus** — liquidation payouts require a signature from an enclave whose key is registered only via a Nitro attestation with matching PCRs.
-
-## Running it
-
-```bash
-cd backend
-pnpm install
-pnpm keys         # writes admin token + signing keys into .env (never prints secrets)
-pnpm smoke        # checks Tatum (both networks), Pyth, Walrus Memory, the LLM, the pool
-pnpm warm:ohlcv   # one-time: fills the daily candle cache
-pnpm dev          # http://localhost:8787
-```
-
-Demos:
-
-| Command | What it proves |
-|---|---|
-| `pnpm agent` | An agent buys cover over HTTP 402, settled on Sui |
-| `pnpm e2e:price` | Buy → breach reported → confirmed → paid, on Testnet |
-| `pnpm seed --dry` | The back-test table behind the base rates |
-| `pnpm mem:ping` | A real Mainnet memory write, read back |
-| `sui move test` | 18 contract tests, including every rejection path |
-
-Contract and object IDs: [`backend/move/DEPLOYMENTS.md`](backend/move/DEPLOYMENTS.md).
-Build status and every deviation from the plan: [`docs/BACKEND_STATUS.md`](docs/BACKEND_STATUS.md).
-
-## Configuration
-
-`backend/.env.example` lists every variable. The ones you must supply: two Tatum API keys, a Testnet Sui private key for the server, a Walrus Memory account id and delegate key, and an LLM key, base URL and model. Everything else has a working default. No secret is ever logged — the logger redacts the exact value of every secret variable plus any 64-hex run, and a bad config prints variable *names* only.
-
-## What is honest about this build
-
-- **Test money.** gUSD, our own test dollar with a public faucet (DeepBook's DUSDC request form is closed). The contract is generic over the coin.
-- **SUI only.** The Testnet BTC/USD price object has not been updated in weeks, so BTC is disabled rather than quoted off a stale price.
-- **The liquidation path needs AWS.** All of it is written — enclave app, attestation client, watcher, claim route — but without an enclave registered, liquidation cover reports "enclave not configured". The Rust has not been compiled against the Nautilus template.
-- **Liquidation discovery polls.** Our Tatum plan refuses the event RPCs, so the watcher reads each covered obligation's `previousTransaction` and lets the *enclave* judge whether a change was a liquidation. That judgement was never ours to make, so handing it candidates costs nothing in trust.
-- **One x402 difference from the spec.** Its last facilitator check is "payTo receives the amount". Our premium goes into a shared `Pool` object, not to an address, so we verify the call is exactly one `ghostwriter::buy` for an issued quote by the quoted buyer, and the contract enforces `premium >= quoted premium`. The Sui exact scheme publishes `sui:mainnet` only; we use `sui:testnet` by the same pattern.
-- **Back-test caveat.** Base rates come from 400 days of daily candles using intraday lows, which makes them true barrier touches — but a daily candle still can't see the path within a day.
-
-## Repository
+## Repo layout
 
 ```
 backend/
-  move/ghostwriter/   Move package (Pool, Policy, Ledger, settlement)   18 tests
-  move/gusd/          test dollar with a public faucet
-  enclave/            Nautilus enclave app (copy into a Nautilus clone)
-  src/chain/          Tatum gRPC clients, Pyth, objects, tx builders, Suilend
-  src/memory/         Walrus Memory client, write queue, records, cases, rules
-  src/pricing/        first-passage maths, volatility, buckets, quoting, explanations
-  src/policies/       on-chain mirror, learning loop
-  src/workers/        price trigger, checkpoint pulse, liquidation watcher
-  src/x402/           agent payments
-frontend/             Next.js app, 9 pages, built against the API contract
-docs/                 build doc, backend status, frontend doc
+  move/ghostwriter/   Pool, Policy, Ledger, AdminCap — BCS-signed quotes, 24 tests
+  move/gusd/          test stablecoin with a public faucet
+  move/enclave/       Nautilus registration (see "What isn't shipped")
+  src/underwriting/   decide.ts (accept/counter/decline) · ask.ts (chat) · learn.ts (rules)
+  src/pricing/        quote.ts · explain.ts
+  src/agent/          autobuyer.ts — English brief to x402 purchase
+  src/memory/         Walrus read/write, namespaces, recall
+  src/chain/          Tatum gRPC clients, both networks
+  src/x402/           x402 v2 Sui "exact" scheme
+  src/workers/        price watcher · policy sync · checkpoint pulse · memory queue
+  scripts/            deployment, funding, onboarding, smoke tests
+
+frontend/src/
+  app/                landing · home · onboard · cover · policies
+                      underwriter · memory · agents · proof
+  components/         AskUnderwriter · AgentBrief · WalletCapabilities · shell
+  lib/                api · types · errors · format · SSE events
+
+docs/
+  HANDOFF.md          full knowledge transfer: every ID, the demo, the gotchas
+  DEMO.md             demo script
+  WIRING.md           page-by-page frontend/backend wiring
+  BACKEND_STATUS.md   build status
+```
+
+## Running it
+
+Node 24.13.1 and pnpm 9.15.0. You'll need a Tatum API key per network, a Walrus Memory
+account on Mainnet with a delegate key, and an OpenAI-compatible inference endpoint (we
+used Vultr).
+
+```bash
+# backend
+cd backend
+pnpm install
+cp .env.example .env        # fill it in; src/config.ts validates on boot and
+                            # prints the names of anything missing
+pnpm keys                   # generates the quote + record signing keys
+pnpm dev                    # :8787
+```
+
+```bash
+# frontend  (npm here, not pnpm — the lockfile is package-lock.json)
+cd frontend
+npm install
+cp .env.example .env.local  # NEXT_PUBLIC_API_URL, nothing else
+npm run dev                 # :3000
+```
+
+Check it came up with `curl -s localhost:8787/v1/health`. All four workers should report
+`running` or `polling`; the hedger is `disabled` by design.
+
+Two things that will waste your afternoon if you don't know them:
+
+- **Run one backend.** Several at once fight over the SQLite file and burn through Tatum
+  credits. `lsof -nP -iTCP:8787 -sTCP:LISTEN` before you start.
+- **`CORS_ORIGINS` must list the port Next actually bound.** Next falls back to :3001
+  when :3000 is taken, and then the app reports the backend as unreachable while `curl`
+  works fine.
+
+To deploy your own pool: `pnpm pool:create`, then `pnpm pool:fund`, then `pnpm seed` to
+write the backtested cases into Walrus. `pnpm fund:gusd` tops up test coins — the faucet
+caps at 1000 per call.
+
+## Deployed addresses
+
+**Sui Testnet**
+
+```
+package     0xff272f596619f255a591323d32d7d0a3835fbdaf84718bdb61f7dec263e23060
+pool        0x76e3792eeb08a19ad7cb1a72e53472c1f3194726be0aeb8b0ed5ede587051d74
+gUSD        0x6dc2c1e1afe9ceece7e2bf64c52055110e5777404d6d23c6d5e51622ec14f2f1::gusd::GUSD
+faucet      0x728cea2bd6f17243b575bea09e017407919113aff264389f707bd7b3529501d5
+SUI/USD     0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744
+```
+
+**Sui Mainnet (Walrus Memory)**
+
+```
+memwal package   0xe7c16fbea0560e7057e2bf7422feaa4fb313749fc69c9e9092fac7a33b81d7f5
+memwal registry  0x8bf82c9e09e36b8d1c38298f68b7cb68e7b8762887e7592add9986d5e9cf199f
+underwriter acct 0x8b7608b6c7911acb97353a6010280bfb687ce4396127e7d9b5c18c72c39f89ab
+agent id         4cafd304de73c09608d6318561c8c2701d321c2365d20535278b63f6e48a2176
+relayer          https://relayer.memory.walrus.xyz
+```
+
+**Public signing keys**
+
+```
+quote signing key   62a55ba3994c5d6df8e6aceda8e313c587e6e20627cbfffde50231bba73f6a16
+record signing key  3b92d499f8392ceeb2e60bf639cb16551f5777b4974c7131ce6b419182a434f5
+```
+
+`/v1/config` returns `quotePubkeyMatches` — if that ever goes false, the key the backend
+signs quotes with has drifted from the one the pool checks, and every purchase will abort
+with code 3.
+
+## Tests
+
+```bash
+cd backend/move/ghostwriter && sui move test   # 24 passing
+cd backend && pnpm test                        # 19 passing
+```
+
+The Move suite covers the things that would cost real money: forged quote signatures,
+tampered terms, replayed quotes, expired quotes, underpayment, buying past free capacity,
+buying while paused, withdrawing locked funds, early expiry, and ledger sequence gaps.
+
+## API
+
+```
+GET  /v1/health                            workers and uptime
+GET  /v1/config                            networks, object ids, pool state, key match
+GET  /v1/market                            on-chain Pyth price
+POST /v1/quotes                            price a cover request (may decline or counter)
+GET  /v1/quotes/:id
+GET  /v1/policies         GET /v1/policies/:id
+POST /v1/policies/confirm                  register a purchase after the wallet signs
+GET  /v1/borrowers/:address                + /history, /positions
+GET  /v1/underwriter/book                  capital, rules, multiplier history
+GET  /v1/underwriter/memory
+POST /v1/underwriter/ask                   chat, grounded only in Walrus
+POST /v1/agent/run                         natural-language brief to a bought policy
+POST /v1/agent/cover                       x402-gated purchase endpoint
+GET  /v1/proof                             every id, key and blob
+GET  /v1/events                            SSE: prices, breaches, payouts, anchors
 ```
