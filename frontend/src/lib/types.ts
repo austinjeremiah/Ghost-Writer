@@ -31,7 +31,9 @@ export type Config = {
   feeds: Partial<Record<Asset, string>>;
   pool: { confirmDelayMs: number; maxConfBps: number; maxPriceAgeS: number; quotePubkeyHex: string;
           /** False means the backend's signing key no longer matches the pool's — quotes would abort 3. */
-          quotePubkeyMatches: boolean; paused: boolean; vault: string; free: string };
+          quotePubkeyMatches: boolean; paused: boolean; vault: string; free: string }
+        /** null when the backend cannot read the Pool on chain right now (e.g. Tatum is down). */
+        | null;
   memwal: {
     packageId: string; registryId: string; serverUrl: string;
     borrowerDelegatePublicKeyHex: string; borrowerDelegateLabel: 'Ghostwriter underwriter';

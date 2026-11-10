@@ -55,6 +55,7 @@ What is done and what is left on the Ghostwriter backend. Phases (P0–P11) are 
 
 ## Pending
 
+0. **Tatum plan limit exceeded on both keys (10 Nov).** Every Tatum call now returns HTTP 402 *"Your plan limit has been exceeded"* (gRPC shows `UNKNOWN`), so the backend cannot read Sui: no market price, pool, book or policies, and no payouts. Walrus Memory and Vultr still work. Fix: a fresh Tatum key (new account) or a paid plan, then restart the backend. The frontend no longer crashes when `/v1/config` returns `pool: null`; it shows a "Can't read the pool on Sui" banner instead.
 1. **P7 — only the Nitro hardware attestation is missing.** See
    [P7_ENCLAVE_RUNBOOK.md](P7_ENCLAVE_RUNBOOK.md). Everything that does not need Nitro hardware is
    done and tested for free: the enclave signs a real Mainnet Suilend liquidation and refuses two

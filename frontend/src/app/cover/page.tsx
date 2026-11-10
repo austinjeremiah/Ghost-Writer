@@ -207,12 +207,12 @@ export default function CoverPage() {
                 </div>
               </div>
 
-              {kind === 'price' && cfg && (
-                <div className="note"><Timer size={16} /><span>Pays if the price stays below the trigger for {Math.round((cfg.pool?.confirmDelayMs ?? 120_000) / 60000)} minutes at any time in the window.</span></div>
+              {kind === 'price' && cfg?.pool && (
+                <div className="note"><Timer size={16} /><span>Pays if the price stays below the trigger for {Math.round(cfg.pool.confirmDelayMs / 60000)} minutes at any time in the window.</span></div>
               )}
 
               {address ? (
-                <button type="button" className="btn" disabled={!valid || quoting || !!cfg?.pool?.paused} onClick={getQuote}>
+                <button type="button" className="btn" disabled={!valid || quoting || !cfg?.pool || cfg.pool.paused} onClick={getQuote}>
                   <Zap size={16} /> {quoting ? 'Getting quote…' : 'Get quote'}
                 </button>
               ) : (
@@ -502,7 +502,7 @@ function BuyBox({ quote: q, cfg, expired, onClear, onRequote }: {
           : expired ? (
             <button type="button" className="btn" onClick={onRequote}><RefreshCw size={16} /> Get a new quote</button>
           ) : (
-            <button type="button" className="btn" disabled={low || !!cfg.pool?.paused || step === 'wallet' || balance.isPending} onClick={buy}>
+            <button type="button" className="btn" disabled={low || !cfg.pool || cfg.pool.paused || step === 'wallet' || balance.isPending} onClick={buy}>
               <Wallet size={16} /> {step === 'wallet' ? 'Waiting for wallet…' : `Buy cover for ${fromBase(q.premium)} gUSD`}
             </button>
           )
