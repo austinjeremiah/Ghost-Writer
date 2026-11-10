@@ -7,6 +7,16 @@ Built for **Total Recall — Tatum × Walrus Memory**.
 
 ---
 
+**Contents** · [What it does](#what-it-does) · [The underwriter](#the-underwriter) ·
+[How a price is computed](#how-a-price-is-computed) · [Why an off-chain price is safe](#why-an-off-chain-price-is-safe) ·
+[How a payout happens](#how-a-payout-happens) · [An agent is a customer](#an-agent-is-a-customer) ·
+[Walrus Memory](#how-walrus-memory-is-used) · [The borrower's record chain](#the-borrowers-record-chain) ·
+[Tatum](#how-tatum-is-used) · [Proof it ran](#proof-it-actually-ran) · [What isn't shipped](#what-isnt-shipped) ·
+[Limitations](#limitations) · [Decisions](#decisions-we-had-to-make) · [Architecture](#architecture) ·
+[Running it](#running-it) · [Addresses](#deployed-addresses) · [Tests](#tests) · [API](#api)
+
+---
+
 ## What it does
 
 You're borrowing on Sui and you don't want to get wiped out by a drawdown. You ask for
@@ -79,6 +89,114 @@ and requires blob-ID citations. Ask it why it refused your 900 and it explains i
 with receipts. Ask it the capital of France and it says *"I have no memory of that."* A
 chatbot would say Paris; this one structurally can't.
 
+## How a price is computed
+
+Every number is deterministic. Memory moves the multiplier; it never touches the maths.
+
+```
+premium = payout × P(touch) × (1 + loading) × clamp(cases × rules × borrower, 0.6, 3.0)
+```
+
+**P(touch)** is the probability that a zero-drift geometric Brownian motion starting at spot
+`S` touches the barrier `B` at any point before expiry — a first-passage problem, not a
+European option. The price only has to *dip* to the trigger once, so pricing it as a
+terminal-value option would badly under-reserve. With log-price drift `mu = -sigma^2/2`:
+
+```
+P(min <= B) = Phi((b + h)/s) + (S/B) · Phi((b - h)/s)
+   where b = ln(B/S),  s = sigma·sqrt(T),  h = sigma^2·T/2
+```
+
+This ignores the requirement that the price *stay* below the trigger through the confirm
+delay, which makes it slightly conservative — it over-prices rather than under-reserves.
+See [`math.ts`](backend/src/pricing/math.ts).
+
+**Loading** is a flat 15%. **The multiplier** is clamped to [0.6, 3.0] so no single memory can
+run away with the price, and there's a floor of 0.10 gUSD on any premium.
+
+The three multiplier factors:
+
+- **Cases** — backtested base rates plus live outcomes. The backtest counts true intraday
+  barrier touches, so its hit rate is directly comparable with the model's probability and may
+  pull the price either way. It's Laplace-smoothed (`(k+1)/(n+2)`), weighted by sample size
+  (`min(n,50)/50`), and the ratio is clamped to [0.7, 1.8] before weighting, so one thin bucket
+  can't dominate. Only an **exact** bucket match may set a base rate — a neighbouring bucket's
+  hit rate is a different number, not a noisy version of this one. Live payouts compound on top
+  at 1.15× each, near-misses at 1.05×, capped at 3×; there the neighbourhood *does* count,
+  because a payout one bucket away is still a warning.
+- **Rules** — what the underwriter wrote for itself after measuring its own P&L.
+- **Borrower** — their own verified history, from their own memory account.
+
+Worked example, the $0.80 quote from the table above:
+
+```
+payout 10 gUSD × P(touch) 0.662 × loading 1.15 × memory 0.90  =  6.85 gUSD
+```
+
+Every factor that moved the number is returned with the blob ID that caused it.
+
+## Why an off-chain price is safe
+
+Pricing runs off-chain — it needs an LLM, Walrus recall and 400 days of history, none of which
+belong in a Move call. The chain doesn't have to trust any of it.
+
+The backend signs a BCS-serialised `QuoteMessage` with an Ed25519 key whose public half is
+stored in the pool at creation. `buy` verifies that signature against the exact bytes before it
+will do anything. The struct must match
+[`ghostwriter.move`](backend/move/ghostwriter/sources/ghostwriter.move) field for field, because
+BCS is order-sensitive:
+
+```
+domain · pool_id · buyer · kind · feed_id · strike_e8 · obligation_id
+payout · premium · start_ms · end_ms · quote_id · expires_ms
+```
+
+`domain` is a fixed string (`ghostwriter.quote.v1`) so a signature can never be replayed as some
+other message type. `pool_id` and `buyer` bind the quote to one pool and one wallet. `quote_id`
+is single-use — the pool records spent IDs. `expires_ms` gives a 120-second TTL.
+
+So the worst a compromised pricing backend can do is quote badly. It cannot mint a policy, pay
+itself, change terms after signing, or let someone else use your quote. And if the signing key
+ever drifts from the one the pool holds, `/v1/config` reports `quotePubkeyMatches: false` and
+every purchase aborts with code 3 rather than failing silently.
+
+The 24 abort codes, which the frontend maps to plain English in
+[`errors.ts`](frontend/src/lib/errors.ts):
+
+| | | | |
+|---|---|---|---|
+| 1 `EPaused` | 7 `ENotActive` | 13 `EBreachAlreadyReported` | 19 `ENotExpired` |
+| 2 `EQuoteExpired` | 8 `EWrongKind` | 14 `ENoBreach` | 20 `EBadSeq` |
+| 3 `EBadQuoteSig` | 9 `EOutsideWindow` | 15 `ETooEarly` | 21 `EBadParams` |
+| 4 `EQuoteUsed` | 10 `EWrongFeed` | 16 `EBadAttestation` | 22 `ENegativePrice` |
+| 5 `EInsufficientPayment` | 11 `EPriceTooUncertain` | 17 `EWrongPool` | 23 `EInsufficientFree` |
+| 6 `EInsufficientCapacity` | 12 `ENotBreached` | 18 `EStaleEnclave` | 24 `EPriceAbove` |
+
+## How a payout happens
+
+Three calls, and the contract checks the price itself at both ends:
+
+1. **`report_breach`** — anyone may call it. Reads the Pyth `PriceInfoObject`, asserts the price
+   is at or below the strike and that we're inside the cover window, then stamps
+   `breach_started_ms`.
+2. **`reset_breach`** — if the price recovers before the delay elapses, the clock is cleared and
+   the policy carries on.
+3. **`confirm_breach`** — after `confirm_delay_ms` (120 s on this pool), **re-reads the price**
+   and pays only if it's still at or below the strike.
+
+The second read is the point. A single momentary wick doesn't trigger a payout, and the watcher
+is never trusted — it can only *nominate* a breach. The watcher is a liveness dependency, not a
+trust one.
+
+One subtlety worth calling out, because it's the kind of thing that becomes an exploit:
+`confirm_breach` also asserts `now <= end_ms + confirm_delay_ms`. Without it, a holder could
+report a breach near expiry, never reset it, and confirm on any later dip — collecting on a
+policy that had already ended. The contract refuses to depend on the off-chain watcher calling
+`expire` or `reset_breach` honestly.
+
+Price staleness and confidence are enforced too: `maxPriceAgeS` is 180 s and `maxConfBps` is 200,
+so a stale or wide Pyth price aborts with 11 rather than settling on bad data.
+
 ## An agent is a customer
 
 Go to `/agents` and type a sentence:
@@ -121,6 +239,24 @@ So a borrower can't forge a clean record (no signing key) and can't quietly dele
 one (the chain breaks, or the anchor stops matching). And any other underwriter they
 authorise can verify the whole thing the same way. That's a no-claims bonus that travels
 between insurers, which is not a thing that exists today.
+
+## The borrower's record chain
+
+Each borrower's history is a hash chain written into their own account. A record body is:
+
+```json
+{ "v": 1, "borrower": "0x…", "seq": 7, "prev": "<sha256 of record 6>", "kind": "…", "at": 1794… }
+```
+
+canonicalised, SHA-256'd, Ed25519-signed by Ghostwriter, then written to Walrus. Record 1 points
+at a genesis hash of 64 zeros. The latest `(seq, head)` is anchored on Sui in a `Ledger` object, and
+the contract enforces `seq = last + 1` (abort 20) — so anchors can't be written out of order or
+skipped, and anchoring happens strictly in sequence even when writes land out of order.
+
+What that buys: a borrower can't forge a clean history, because they don't hold the signing key.
+They can't delete a bad record, because the chain breaks and the on-chain anchor stops matching.
+And they *can* take the whole thing to a competing underwriter, who can verify it independently.
+A no-claims bonus that moves between insurers doesn't exist in insurance today.
 
 ## How Tatum is used
 
@@ -172,6 +308,48 @@ support, and the Move side is covered by tests — but it runs as a plain binary
 AWS Nitro, so it cannot produce a hardware attestation. `ENCLAVE_OBJECT_ID` is
 deliberately empty and on-chain liquidation settlement is disabled. Price-drop cover is
 the product; liquidation cover is unfinished work left in the tree.
+
+## Limitations
+
+Beyond the unshipped liquidation path:
+
+- **One asset.** SUI only. BTC is wired end to end but disabled, because its Pyth price object on
+  Testnet isn't being updated.
+- **One pool, one admin.** `AdminCap` can pause the pool, deposit, withdraw unlocked funds and
+  rotate the quote key. `withdraw` cannot touch capital locked against open policies (there's a
+  test for exactly that), but this is a trusted operator, not a DAO.
+- **The watcher is a liveness dependency.** It can't cause a wrong payout — the contract re-reads
+  the price — but if it stops, payouts wait. `/v1/health` reports it and the UI banners it.
+- **Capacity is static.** Limits are fractions of free capital, not a real risk model. No
+  correlation across policies: twenty people buying the same trigger is twenty times the same bet,
+  and only `MAX_BUCKET_SHARE` stops it.
+- **Premiums don't earn.** Idle capital sits in the vault. A real pool would deploy it.
+- **The backtest is 400 days of daily candles.** Enough to be useful, short enough that a regime
+  change would invalidate the base rates.
+
+## Decisions we had to make
+
+**The LLM never touches a transaction.** It produces a verdict, a multiplier and prose. Capital
+limits are enforced in `guard()` before the model is consulted and again in Move. The natural
+language agent is split the same way: the model parses the brief into mandate numbers, ordinary
+code does the signing. Judgement is model work; money is not.
+
+**On-chain Pyth, not Hermes.** The contract reads a `PriceInfoObject` directly. Fetching a signed
+price off-chain and passing it in would mean trusting our own backend about the price it's about
+to be paid on. The cost is that we inherit Testnet's ~126 s push cadence, which is why
+`maxPriceAgeS` is 180.
+
+**Our own stablecoin.** `gUSD` has a public faucet capped at 1000 per call, so anyone can try the
+product without hunting for Testnet tokens. A policy denominated in a coin nobody can get is a
+demo nobody can run.
+
+**Two networks.** Policies on Testnet, memory on Mainnet. The hosted Walrus relayer is
+Mainnet-only, and we weren't going to spend real money on demo policies. It's the honest shape
+rather than a shortcut, and the app labels which network every object lives on.
+
+**SQLite, not Postgres.** `node:sqlite`, no external service. Walrus is canonical for anything
+that matters — on a fresh database the rule cache rebuilds from memory and policies re-sync from
+chain, which also means a wiped disk costs us the quote history and nothing else.
 
 ## Architecture
 

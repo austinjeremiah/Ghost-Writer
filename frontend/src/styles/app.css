@@ -186,6 +186,9 @@ table { border-collapse: collapse; width: 100%; }
 
 .banner { display: flex; align-items: center; gap: 10px; padding: 10px 28px; font-size: 14px; background: var(--cl-chrome); color: var(--cl-ink-inv); }
 .banner--warn { background: var(--cl-warn); }
+/* Neutral: a fact about the environment, not a fault. */
+.banner--info { background: var(--cl-raised); color: var(--cl-ink-2); border-bottom: 1px solid var(--cl-line); }
+.banner--info a { color: var(--cl-ink); text-underline-offset: 2px; }
 
 /* ---------- forms ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; }
